@@ -525,9 +525,17 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
 
     ``skeleton`` 是 :class:`chemfigstudio.skeleton.Skeleton` 的 JSON；留空则用默认直链。
     """
-    from .skeleton import ATOM_RADIUS, Scene
+    from .skeleton import ATOM_RADIUS, Scene, parse_skeleton_input
 
-    scene = Scene.from_json(skeleton) if skeleton else Scene.single()
+    # 输入三种形态：空 / 多分子场景 JSON / 其余（单骨架 JSON、molblock、SMILES）
+    text = str(skeleton or "").strip()
+    if not text:
+        scene = Scene.single()
+    else:
+        try:
+            scene = Scene.from_json(text)
+        except Exception:
+            scene = Scene.single(parse_skeleton_input(text))
     offsets = scene.offsets()
     labels = scene.names
     x0, y0, x1, y1 = scene.bounds()
@@ -571,11 +579,16 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
 
 
 def _draw_bond(draw, first: Tuple[float, float], second: Tuple[float, float], bond) -> None:
-    """画一根键：单键一条线，双键/三键若干条平行线。"""
+    """画一根键：单键一条线，双键/三键若干条平行线，立体键画楔形。"""
     ax, ay = first
     bx, by = second
     if bond.order == 1:
-        draw.line([ax, ay, bx, by], fill=INK, width=4)
+        if bond.wedge == "up":
+            _draw_wedge(draw, first, second)
+        elif bond.wedge == "down":
+            _draw_hashed_wedge(draw, first, second)
+        else:
+            draw.line([ax, ay, bx, by], fill=INK, width=4)
         return
     dx, dy = bx - ax, by - ay
     length = max(1.0, (dx * dx + dy * dy) ** 0.5)
@@ -587,17 +600,38 @@ def _draw_bond(draw, first: Tuple[float, float], second: Tuple[float, float], bo
                   fill=INK, width=width)
 
 
+_LABEL_FONT = 19
+_LABEL_SUB = 13
+
+
 def _draw_atom(draw, centre: Tuple[float, float], atom) -> None:
-    """画一个原子：白底圆点 + 元素配色 + 富文本标签。"""
+    """画一个原子：白底圆点 + 元素配色 + 富文本标签。
+
+    **裸碳不写字**：结构式里碳骨架是线，顶点只画一个小圆点（否则满图都是 "C"）。
+    """
     from .skeleton import ATOM_RADIUS
 
     ax, ay = centre
-    draw.ellipse([ax - ATOM_RADIUS, ay - ATOM_RADIUS, ax + ATOM_RADIUS, ay + ATOM_RADIUS],
-                 fill=WHITE, outline=_hex_to_rgb(atom.colour()), width=3)
     label = atom.text()
-    font = core.fonts(19, True)
-    draw.text((ax - core.text_width(draw, label, font, core.fonts(13)) / 2, ay - 12),
-              label, font=font, fill=_hex_to_rgb(atom.colour()))
+    bare_carbon = (atom.element == "C" and not atom.label)
+    if bare_carbon:
+        label = ""
+
+    radius = ATOM_RADIUS
+    if label:
+        font = core.fonts(_LABEL_FONT, True)
+        sub = core.fonts(_LABEL_SUB)
+        width = core.text_width(draw, label, font, sub)
+        radius = max(ATOM_RADIUS, min(width / 2.0 + 6.0, ATOM_RADIUS * 1.6))
+
+    draw.ellipse([ax - radius, ay - radius, ax + radius, ay + radius],
+                 fill=WHITE, outline=_hex_to_rgb(atom.colour()), width=3)
+    if not label:
+        return
+    font = core.fonts(_LABEL_FONT, True)
+    sub = core.fonts(_LABEL_SUB)
+    core.draw_rich_centred(draw, ay - 12, label, font, sub,
+                           fill=_hex_to_rgb(atom.colour()), cx=ax)
 
 
 def _hex_to_rgb(value: str) -> Tuple[int, int, int]:

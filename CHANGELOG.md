@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-16
+
+### Added
+
+- **Structure import — the tool can finally read real molecules.** The `skeleton` field
+  (CLI and GUI) now accepts three kinds of input and sniffs which one it got:
+  1. **SMILES** (e.g. `c1ccccc1O`) — RDKit supplies the 2D layout and stereochemistry;
+  2. **molblock / SDF** (V2000) — parsed as plain text, **no dependency at all**;
+  3. the original skeleton JSON.
+  What you get back is an ordinary editable skeleton: drag atoms, connect bonds, change
+  bond order, or render it as a figure. Verified on aspirin (13 heavy atoms), benzene and
+  L-alanine.
+- **Minimal stereochemistry**: `Bond.wedge` (`none|up|down`) plus solid/hashed wedge
+  rendering. The **narrow end is always the stereocentre** (`known_stereo` from RDKit wins;
+  a plain molblock falls back to a degree heuristic, and equal degrees mean *no guessing*) —
+  drawing it the other way round is the other enantiomer, so this convention is pinned by
+  tests.
+- `Atom.charge` (formal charges, needed for N+/O- molecules) and a wider element table
+  (8 → 11: added F, I, B).
+- `Skeleton.parse_skeleton_input()` — one entry point for all three input kinds.
+
+### Fixed
+
+- **`Atom.text()` no longer falls back to `ELEMENT_LABELS`.** That table means "default
+  group label when switching an element" (`C` → `CH_{3}`), not a render default — the
+  fallback turned every skeletal carbon into a methyl and made imported molecules look like
+  piles of `CH_{3}`.
+- **A carboxylic acid's double-bonded oxygen was labelled `OH`** instead of `O`; labels now
+  respect bond order.
+- **Multi-molecule scene JSON was downgraded to a single molecule** by the new unified input
+  path (caught by an existing test; now covered by a regression test).
+
+
 ## [0.4.2] - 2026-10-16
 
 ### Changed

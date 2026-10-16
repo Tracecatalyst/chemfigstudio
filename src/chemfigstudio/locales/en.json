@@ -189,7 +189,7 @@
   "param.name.label": "Name (title)",
   "param.show_delta_h.label": "Show the ΔHc column",
   "param.show_percent.label": "Show class/literature percentage",
-  "param.skeleton.help": "Leave empty for the default chain; the UI fills this in when you edit",
+  "param.skeleton.help": "Leave empty for a default chain. You can also paste a structure: SMILES (e.g. c1ccccc1O, needs RDKit) or a molblock/SDF (no RDKit needed) — atoms and stereo bonds are laid out for you.",
   "param.skeleton.label": "Skeleton data (JSON)",
   "param.smiles.help": "e.g. CCCCO = butan-1-ol. It overrides the carbon count.",
   "param.smiles.label": "SMILES (optional)",

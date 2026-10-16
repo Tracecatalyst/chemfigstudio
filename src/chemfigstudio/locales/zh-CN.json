@@ -189,7 +189,7 @@
   "param.name.label": "名称（标题）",
   "param.show_delta_h.label": "显示 ΔHc 列",
   "param.show_percent.label": "显示班级/文献百分比",
-  "param.skeleton.help": "留空用默认直链；界面上编辑时会自动填这一项",
+  "param.skeleton.help": "留空 = 默认直链。也可以直接粘贴结构：SMILES（如 c1ccccc1O，需要 RDKit）或 molblock/SDF（不需要 RDKit），会自动摆好原子与立体键。",
   "param.skeleton.label": "骨架数据（JSON）",
   "param.smiles.help": "例如 CCCCO = butan-1-ol。填了它会自动覆盖碳数。",
   "param.smiles.label": "SMILES（可选）",

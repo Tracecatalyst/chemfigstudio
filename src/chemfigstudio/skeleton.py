@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from .errors import RenderError
 
 __all__ = ["Atom", "Bond", "Skeleton", "Scene", "ELEMENTS", "ELEMENT_LABELS",
+           "parse_skeleton_input", "VALENCE",
            "DEFAULT_HIT_RADIUS",
            "DEFAULT_BOND_LENGTH", "ANGLE_STEP", "BOND_HIT_TOLERANCE", "MOLECULE_GAP"]
 
@@ -24,12 +25,18 @@ __all__ = ["Atom", "Bond", "Skeleton", "Scene", "ELEMENTS", "ELEMENT_LABELS",
 ELEMENTS: Dict[str, str] = {
     "C": "#111827", "H": "#6B7280", "O": "#D61F1F", "N": "#1D4ED8",
     "Cl": "#15803D", "Br": "#92400E", "S": "#A16207", "P": "#C2410C",
+    "F": "#0F766E", "I": "#7E22CE", "B": "#B45309",
 }
 #: 元素切换时的默认显示文本（画结构式时最常用到的写法）
 ELEMENT_LABELS: Dict[str, str] = {
     "C": "CH_{3}", "H": "H", "O": "OH", "N": "NH_{2}",
     "S": "SH", "Cl": "Cl", "Br": "Br", "P": "PH_{2}",
+    "F": "F", "I": "I", "B": "B",
 }
+
+#: 价键上限（元素 → 允许的最大键级之和）；不在表里的元素不检查
+VALENCE: Dict[str, int] = {"H": 1, "B": 3, "C": 4, "N": 3, "O": 2, "F": 1,
+                           "P": 5, "S": 6, "Cl": 1, "Br": 1, "I": 1}
 
 DEFAULT_HIT_RADIUS = 26.0
 DEFAULT_BOND_LENGTH = 92.0        # 标准键长（与 CHAIN_DX 一致）
@@ -59,23 +66,39 @@ class Atom:
     x: float = 0.0
     y: float = 0.0
     label: str = ""          # 空 = 用 element 作为显示文本（如 "CH_{3}"）
+    charge: int = 0          # 形式电荷（导入真实分子时会有，如 N+ / O-）
 
     def text(self) -> str:
+        """显示文本：用户标签优先，空标签就显示元素符号。
+
+        不要在这里回退到 ELEMENT_LABELS（那是"切换元素时的默认基团写法"）：
+        骨架碳本该没有文字，回退成 CH_{3} 会让整张图变成一堆甲基。
+        """
         return self.label or self.element
 
     def colour(self) -> str:
         return ELEMENTS.get(self.element, ELEMENTS["C"])
 
     def as_dict(self) -> Dict[str, Any]:
-        return {"id": self.id, "element": self.element, "x": round(self.x, 2),
+        data = {"id": self.id, "element": self.element, "x": round(self.x, 2),
                 "y": round(self.y, 2), "label": self.label}
+        if self.charge:
+            data["charge"] = self.charge
+        return data
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Atom":
         return cls(id=str(raw.get("id") or uuid.uuid4().hex[:6]),
                    element=str(raw.get("element") or "C"),
                    x=float(raw.get("x") or 0.0), y=float(raw.get("y") or 0.0),
-                   label=str(raw.get("label") or ""))
+                   label=str(raw.get("label") or ""),
+                   charge=int(raw.get("charge") or 0))
+
+
+WEDGE_NONE = "none"
+WEDGE_UP = "up"          # 实心楔形：朝观察者（molblock 里是 1）
+WEDGE_DOWN = "down"      # 虚线楔形：朝里（molblock 里是 6）
+WEDGES = (WEDGE_NONE, WEDGE_UP, WEDGE_DOWN)
 
 
 @dataclass
@@ -85,14 +108,48 @@ class Bond:
     a: str
     b: str
     order: int = 1           # 1 = 单键，2 = 双键
+    wedge: str = WEDGE_NONE  # none | up | down（窄端 = a，即立体中心）
 
     def as_dict(self) -> Dict[str, Any]:
-        return {"a": self.a, "b": self.b, "order": int(self.order)}
+        data = {"a": self.a, "b": self.b, "order": int(self.order)}
+        if self.wedge != WEDGE_NONE:
+            data["wedge"] = self.wedge
+        return data
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Bond":
+        wedge = str(raw.get("wedge") or WEDGE_NONE).lower()
         return cls(a=str(raw.get("a")), b=str(raw.get("b")),
-                   order=max(1, min(3, int(raw.get("order") or 1))))
+                   order=max(1, min(3, int(raw.get("order") or 1))),
+                   wedge=wedge if wedge in WEDGES else WEDGE_NONE)
+
+
+def parse_skeleton_input(text: str) -> "Skeleton":
+    """把用户给的一坨文本变成骨架 —— **支持三种输入**，不新增参数。
+
+    这是"导入真实结构"的入口，按内容自动判断：
+
+    1. 以 ``{`` 开头 → 我们的骨架 JSON（老行为，原样解析）
+    2. 含 ``V2000``/``M  END`` → molblock（V2000）或 SDF 第一条记录（不需要 RDKit）
+    3. 其它 → SMILES（需要 RDKit 做 2D 布局与立体化学）
+
+    顺序很重要：先认 JSON，再认 molblock，最后才当 SMILES —— 因为 molblock 里
+    也可能出现 ``{`` 之类字符，而 SMILES 里不会出现 ``M  END``。
+    """
+    text = str(text or "").strip()
+    if not text:
+        return Skeleton.chain(4)
+    if text.startswith("{"):
+        return Skeleton.from_json(text)
+    from .structure import from_molblock, from_smiles
+
+    looks_like_molblock = ("V2000" in text or "V3000" in text
+                           or "M  END" in text or "$$$$" in text)
+    result = from_molblock(text) if looks_like_molblock else from_smiles(text)
+    skeleton = result.skeleton
+    if not skeleton.title:
+        skeleton.title = result.title
+    return skeleton
 
 
 @dataclass

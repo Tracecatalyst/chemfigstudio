@@ -70,6 +70,7 @@ cli.py / gui/server.py ──> render3d.py ──> RDKit ──> molblock(文本
 | `figures.py` | **七种**图的构图（标题、坐标、行距、ΔH 文案、方程式配平）+ 示性式化学词汇表 `chain_style()` | `core`、`layout` | 不做参数校验；不 exit；不写日志 |
 | `api.py` | 参数表 `ParamSpec`、图注册表 `FIGURES`、校验 + 类型转换、输出路径解析、`render()` | `figures`、`smiles` | 不画图；不碰 HTTP |
 | `smiles.py` | SMILES / 名称 → 碳数（RDKit 可选，内置直链解析兜底） | `errors` | 不画图 |
+| `structure.py` | **把真实分子导进来**：molblock/SDF（纯文本，零依赖）/ SMILES（RDKit 出 2D 坐标与立体化学）→ 可编辑骨架。坐标缩放、y 轴翻转、楔形窄端规范化（窄端=立体中心）都在这里 | `skeleton`、`smiles`、`errors` | 不画图、不写文件；**不自己实现布局算法** |
 | `errors.py` | `RenderError`（用户可纠正）/ `ConfigError`（环境问题） | 无 | —— |
 | `render3d.py` | SMILES → **3D 构象**（molblock）。薄封装 RDKit（ETKDGv3 + MMFF94），RDKit 缺失时抛 `ConfigError`（附安装命令） | `smiles`、`errors` | 不画图、不写文件、不打印、**不认识 2D 画布** |
 | `gui/static/viewer3d.*` + `vendor/3Dmol-min.js` | 3D 查看器页面（浏览器侧渲染、旋转、导出 PNG）。3Dmol.js **自托管**，无 CDN | 浏览器（3Dmol.js） | 不做 chemistry 计算（几何全来自 `/api/render3d`） |
@@ -116,6 +117,11 @@ ChainStyle(n_carbons, label_size, sub_size, dx, dy, bond_width,
            head_label, vertex_label, end_label, end_colour, end_lone_pairs,
            note, note_label, note_head_label, …)
 SaveReport(path, size, warnings, cropped)          # .as_dict()
+
+# skeleton.py —— 导入真实分子后需要的化学属性
+Atom(id, element, x, y, label, charge)
+Bond(a, b, order, wedge)      # wedge ∈ none|up|down，窄端 = Bond.a（立体中心）
+Structure2D(skeleton, title, smiles, formula, mw, source, skipped_elements, notes)
 
 # figures.py
 FigureResult(kind, report, smiles_info)            # .path/.size/.warnings/.as_dict()
