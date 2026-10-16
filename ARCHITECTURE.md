@@ -232,7 +232,6 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 | `test_figures.py` | 四种图都能出图 + PNG magic + 标准参数下**零告警**；反应方程式奇偶碳配平 |
 | `test_cli.py` | **旧命令兼容**（硬约束）、`--json`、`--outdir`、`doctor`、错误码 2、SMILES 校验、名称解析 |
 | `test_gui.py` | **真起 HTTP 服务**：health / figures / render 往返 / 预览取图 / 400 / 404 / 路径穿越拦截 |
-| `test_native_app.py` | 原生外壳：Swift 源码自检（含"不许有业务逻辑"）、构建脚本语法、已构建产物的 plist/内嵌源码/体积、**父进程看门狗**（父死子退）、`--parent-pid`/`--quiet` 存在 |
 
 原则：**改任何行为都先加/改测试**；GUI 测试不依赖浏览器，可在无界面环境跑。
 

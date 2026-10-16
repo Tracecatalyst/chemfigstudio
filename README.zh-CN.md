@@ -41,7 +41,7 @@
 ```bash
 git clone https://github.com/Tracecatalyst/chemfigstudio.git && cd chemfigstudio
 PIP_USER=1 python3 -m pip install --user pillow      # 若还没装 Pillow
-make test                                            # 278 项测试，离线可跑
+make test                                            # 262 项测试，离线可跑
 ```
 
 ## 快速上手

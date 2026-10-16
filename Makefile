@@ -11,7 +11,6 @@ PYTHONPATH_ENV := PYTHONPATH=$(SRC)
 # 不写字节码缓存：沙箱/只读环境下更稳，也少一个要 gitignore 的目录
 export PYTHONDONTWRITEBYTECODE := 1
 
-.PHONY: help test test-gui figures gui app bundle bundle-lite bundle-universal browser-check ui-shots clean lint doctor typecheck format
 
 help:
 	@echo "make test      - 跑全部单元测试（core / figures / cli / gui）"
@@ -20,8 +19,6 @@ help:
 	@echo "make app       - 打开 macOS 原生应用（首次会自动编译）"
 	@echo "make bundle    - 编译 dist/ChemFigStudio.app（内嵌 Pillow，约 13 MB）"
 	@echo "make bundle-lite - 同上但不内嵌 Pillow（约 400 KB，目标机需自备 Pillow）"
-	@echo "make browser-check - 真浏览器回归（需 ego-browser；覆盖 JS：语言/预览/导出对话框/草稿）"
-	@echo "make ui-shots     - 多宽度布局验收（1440/1280/1024/768/380 + 深色）"
 	@echo "make bundle-universal - 通用二进制（arm64 + x86_64，lipo 合并）"
 	@echo "make lint      - 语法编译检查（compileall）"
 	@echo "make doctor    - 打印环境自检（python / Pillow / 字体 / RDKit）"

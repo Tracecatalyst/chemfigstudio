@@ -137,9 +137,7 @@ The app is a thin Swift/WKWebView shell around the same local server. It is unsi
 ```bash
 make lint        # ruff
 make typecheck   # mypy
-make test        # 278 unit tests, hermetic
-make browser-check   # 21 end-to-end UI checks in a real browser
-make ui-shots    # multi-width layout assertions + screenshots
+make test        # 262 unit tests, hermetic
 ```
 
 Every fix lands with a test in the same commit, and rendering refactors are proven by
