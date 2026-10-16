@@ -49,7 +49,7 @@ make test                                            # 262 项测试，离线可
 ### 一、网页界面
 
 ```bash
-make gui            # 启动 http://127.0.0.1:8756 并自动打开
+make gui            # 启动 http://127.0.0.1:8765 并自动打开
 ```
 
 三栏布局：左边**参数**、中间**画布**、右边**图层 / 输出**。改参数立即刷新预览；
@@ -64,7 +64,7 @@ make gui            # 启动 http://127.0.0.1:8756 并自动打开
 PYTHONPATH=src python3 -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1
 PYTHONPATH=src python3 -m chemfigstudio.cli series --include-methanol -o series.png
 PYTHONPATH=src python3 -m chemfigstudio.cli reaction --n 4 --dh-mol -2670 --dpi 300
-PYTHONPATH=src python3 -m chemfigstudio.cli list
+PYTHONPATH=src python3 -m chemfigstudio.cli doctor
 ```
 
 每个子命令都支持 `--format png,svg`、`--dpi`、`--transparent`、`--json`。
@@ -114,7 +114,7 @@ make bundle-universal    # Intel + Apple Silicon 通用包
 ## 开发与验收
 
 ```bash
-make lint            # ruff
+make lint            # 语法检查（ast.parse）
 make typecheck       # mypy
 make test            # 264 项单测（离线）
 ```

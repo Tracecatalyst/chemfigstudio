@@ -5,6 +5,40 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-16
+
+### Security
+
+- **The GUI wrote to any directory the request asked for.** `/api/export` and `/api/batch`
+  passed the request's `dir` straight to the writer, so any web page the user had open could
+  make the local server write a file anywhere on disk (reproduced: a POST produced
+  `/tmp/.../ELSEWHERE/pwned.png`). Writing is now confined to the output directory plus an
+  explicit `allowedWriteDirs` list you edit yourself in Settings (new textarea). Out-of-range
+  requests get **403** with an actionable message.
+- **Mutating endpoints accepted cross-site requests.** No Origin/Host check and no
+  Content-Type check on the JSON body, so a cross-site "simple request" (text/plain or a form
+  post, which skips CORS preflight) could change settings, export files or read a local CSV.
+  Every POST now requires a loopback same-origin `Origin` when present, a loopback `Host`
+  (blocks DNS rebinding) and `application/json`. Non-browser clients (curl, scripts) send no
+  `Origin` and keep working.
+
+### Fixed
+
+- **Batch overwrite confirmation checked different filenames than it wrote.**
+  `target_paths()` fell back to `"figure"` while `run_batch()` fell back to `kind`
+  (`alcohol` by default), so the dialog inspected `01_figure.png` and the run overwrote
+  `01_alcohol.png` — silent data loss. Both now share one default and one fallback.
+- **Export file name showed a doubled extension** (`x.png.png`) when the typed name already
+  had one. The file on disk was correct; the displayed path was not.
+
+### Docs
+
+- Corrected documentation drift: test counts, `make help`'s "4 example figures" (it writes
+  6), the port (`8756` → `8765`), a `chemfigstudio list` example that does not exist, a
+  `tools/chemfigstudio` path that does not exist in this repository, and `make lint` being
+  described as ruff when it runs `ast.parse`.
+
+
 ## [0.4.0] - 2026-10-16
 
 ### Added

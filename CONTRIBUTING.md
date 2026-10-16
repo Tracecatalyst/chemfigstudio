@@ -7,9 +7,9 @@
 不需要安装任何东西：`PYTHONPATH=src` 即可运行。可选 `pip install -e .` 后使用 `chemfigstudio` 命令。
 
 ```bash
-cd tools/chemfig-studio
+cd chemfigstudio
 make doctor     # 自检
-make test       # 42 个测试，约 1 秒
+make test       # 303 个测试，约 19 秒
 ```
 
 ## 改动流程

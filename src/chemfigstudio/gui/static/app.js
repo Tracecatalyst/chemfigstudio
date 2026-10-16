@@ -248,6 +248,7 @@ async function openSettings() {
   $("set-format").value = state.settings.defaultFormat || "png";
   $("set-dpi").value = state.settings.defaultDpi || 300;
   $("set-transparent").checked = !!state.settings.transparent;
+  $("set-allowed-dirs").value = (state.settings.allowedWriteDirs || []).join("\n");
   $("settings-path").textContent = state.settings._path || "";
   $("settings-status").textContent = "";
 }
@@ -259,6 +260,9 @@ async function saveSettings() {
     defaultFormat: $("set-format").value,
     defaultDpi: Number($("set-dpi").value) || 300,
     transparent: $("set-transparent").checked,
+    // 多行文本框 → 绝对路径列表（服务端会再过一遍：只收绝对路径）
+    allowedWriteDirs: $("set-allowed-dirs").value
+      .split("\n").map((line) => line.trim()).filter(Boolean),
   };
   const data = await api("/api/settings", {
     method: "PUT",
@@ -539,7 +543,8 @@ function exportPayload(overwrite) {
     kind: state.current.kind,
     params: collectParams(),
     dir: $("ex-dir").value.trim() || null,
-    filename: ($("ex-filename").value.trim() || "figure") + "." + fmt,
+    // 去掉用户可能自己写的扩展名，再按所选格式补一个 —— 否则会出现 x.png.png
+    filename: ($("ex-filename").value.trim() || "figure").replace(/\.[a-z0-9]+$/i, "") + "." + fmt,
     format: fmt,
     dpi: Number($("ex-dpi").value) || 300,
     transparent: $("ex-transparent").checked,

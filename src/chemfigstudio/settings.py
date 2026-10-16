@@ -39,10 +39,13 @@ DEFAULTS: Dict[str, Any] = {
     "defaultDpi": 300,
     "transparent": False,
     "pluginsDir": "",            # 空 = <config_dir>/plugins
+    # 除 outputDir 之外，还允许 GUI/批量写盘的目录（绝对路径列表）。
+    # 默认空 = 只能写 outputDir —— HTTP 请求来自浏览器，不能让它把文件写到任意位置。
+    "allowedWriteDirs": [],
     "recentDocuments": [],
     "windowState": {},
 }
-_LIST_FIELDS = ("recentDocuments",)
+_LIST_FIELDS = ("recentDocuments", "allowedWriteDirs")
 _INT_FIELDS = ("defaultDpi",)
 
 
@@ -198,6 +201,19 @@ class Settings:
         out["transparent"] = bool(out.get("transparent", False))
         if not isinstance(out.get("recentDocuments"), list):
             out["recentDocuments"] = []
+        # 允许写盘目录：只收绝对路径（相对路径无法判定边界），去重保序
+        raw_dirs = out.get("allowedWriteDirs")
+        if not isinstance(raw_dirs, list):
+            raw_dirs = []
+        cleaned: list = []
+        for entry in raw_dirs:
+            text = str(entry or "").strip()
+            if not text or not os.path.isabs(os.path.expanduser(text)):
+                continue
+            text = os.path.expanduser(text)
+            if text not in cleaned:
+                cleaned.append(text)
+        out["allowedWriteDirs"] = cleaned
         if not isinstance(out.get("windowState"), dict):
             out["windowState"] = {}
         lang = str(out.get("language", "auto"))

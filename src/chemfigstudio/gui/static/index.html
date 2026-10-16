@@ -111,6 +111,14 @@
         <span class="lbl" data-i18n="settings.transparent">Transparent background</span>
         <input id="set-transparent" type="checkbox">
       </label>
+      <label class="row col">
+        <span class="lbl" data-i18n="settings.allowed_dirs">Allowed write directories</span>
+        <textarea id="set-allowed-dirs" rows="3" spellcheck="false"
+                  placeholder="/Users/you/Desktop"></textarea>
+      </label>
+      <p class="hint" data-i18n="settings.allowed_dirs_help">One absolute path per line. The
+        local server only writes inside the output directory and the paths listed here —
+        a web page you have open cannot make it write anywhere else.</p>
       <p class="hint" id="settings-path"></p>
       <div class="actions">
         <button id="save-settings" class="primary" data-i18n="settings.save">Save</button>

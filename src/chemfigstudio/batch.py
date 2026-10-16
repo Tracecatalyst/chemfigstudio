@@ -132,14 +132,20 @@ def read_csv_text(text: str, source: str = "CSV") -> List[BatchItem]:
     return items
 
 
-def target_paths(items: Sequence[BatchItem], outdir, *, formats: Sequence[str] = ("png",),
+def target_paths(items: Sequence[BatchItem], outdir, *, kind: str = "alcohol",
+                 formats: Sequence[str] = ("png",),
                  filename_template: str = "{index:02d}_{name}") -> List[Path]:
-    """算出将要写出的文件（**不落盘**，供 GUI 先问"是否覆盖"）。"""
+    """算出将要写出的文件（**不落盘**，供 GUI 先问"是否覆盖"）。
+
+    ``kind`` 必须与 :func:`run_batch` 用**同一个**默认值、同一套 fallback：两边一旦
+    不一致（曾经这里写死 ``"figure"``、那边用 ``kind``），覆盖确认检查的就是另一批
+    文件名，会**静默覆盖**已有文件 —— 这是本项目唯一的数据丢失级缺陷。
+    """
     directory = Path(outdir).expanduser()
     wanted = tuple(str(f).lower().lstrip(".") for f in formats) or ("png",)
     out: List[Path] = []
     for index, item in enumerate(items, start=1):
-        stem = filename_template.format(index=index, name=item.name or item.kind or "figure",
+        stem = filename_template.format(index=index, name=item.name or item.kind or kind,
                                         smiles=item.smiles)
         safe = "".join(ch if ch not in '/\\:' else "-" for ch in stem).strip() or str(index)
         out.append(directory / (safe + "." + wanted[0]))

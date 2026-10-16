@@ -22,6 +22,8 @@ from chemfigstudio.gui import server as gui_server
 
 
 class GuiHttpTests(unittest.TestCase):
+    """GUI 端到端（含写盘收口：只有 outdir 与白名单目录能写）。"""
+
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
@@ -41,6 +43,13 @@ class GuiHttpTests(unittest.TestCase):
     def get(self, path):
         with urllib.request.urlopen(self.base + path, timeout=20) as res:
             return res.status, res.read()
+
+    def allow_dir(self, directory):
+        """把目录加入写盘白名单（走真实 /api/settings；返回失败时抛错便于定位）。"""
+        status, payload = self.post("/api/settings",
+                                    {"changes": {"allowedWriteDirs": [str(directory)]}})
+        self.assertEqual(status, 200, payload)
+        return directory
 
     def post(self, path, payload):
         data = json.dumps(payload).encode("utf-8")
@@ -77,6 +86,12 @@ class GuiHttpTests(unittest.TestCase):
         for hook in ("chemfigApplyText", "chemfigCopyImage", "windowState", "installDragAndDrop",
                      "renameTab", "startRenameTab", "tab-input"):
             self.assertIn(hook, js, "app.js 缺少外壳增强：%s" % hook)
+        # 导出文件名不能出现 x.png.png：用户自己写了扩展名时要先剥掉
+        self.assertIn('.replace(/\\.[a-z0-9]+$/i, "") + "." + fmt', js,
+                      "导出文件名没有剥掉用户输入的扩展名（会得到 x.png.png）")
+        # 写盘白名单必须在设置面板里可见可编辑，否则功能等于被关掉
+        self.assertIn("set-allowed-dirs", html)
+        self.assertIn("allowedWriteDirs", js)
         _status, css = self.get("/static/style.css")
         css = css.decode("utf-8")
         # hidden 属性必须能压过 .sheet 的 display:flex（否则弹层一直罩住界面 —— 已踩过）
@@ -182,6 +197,58 @@ class GuiHttpTests(unittest.TestCase):
         status, body = self.get("/static/vendor/3Dmol-LICENSE.txt")
         self.assertEqual(status, 200)
         self.assertIn(b"BSD", body)
+
+    # ------------------------------------- 批量覆盖确认必须与真实写入一致（数据丢失）
+
+    def test_batch_dry_run_targets_match_what_is_written(self):
+        """dryRun 报出的文件名，必须与真正会写出的文件**逐个相同**。
+
+        曾经 target_paths() 用 fallback "figure"、run_batch() 用 kind（默认 alcohol），
+        于是确认框检查 01_figure.png、实际覆盖 01_alcohol.png —— 静默数据丢失。
+        """
+        import shutil
+        work = Path(tempfile.mkdtemp())
+        try:
+            self.allow_dir(work)
+            csv_text = "name,smiles\n,CO\n"
+            # 先用不带 kind 列的最小 CSV 干跑，拿到"将要写"的文件名
+            status, dry = self.post("/api/batch", {"csv": csv_text, "dir": str(work),
+                                                   "dryRun": True, "format": "png"})
+            self.assertEqual(status, 200)
+            self.assertTrue(dry["dryRun"])
+            targets = [Path(t) for t in dry["targets"]]
+            self.assertEqual(len(targets), 1)
+
+            # 关键断言：干跑说的文件 = 真跑写的文件
+            status, ran = self.post("/api/batch", {"csv": csv_text, "dir": str(work),
+                                                   "format": "png", "dpi": 72,
+                                                   "overwrite": True})
+            self.assertEqual(status, 200, ran)
+            self.assertTrue(ran["ok"], ran)
+            produced = sorted(p.name for p in work.iterdir())
+            self.assertEqual(produced, [targets[0].name],
+                             "干跑与真跑的文件名不一致 → 覆盖确认检查了另一批文件")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_batch_refuses_to_overwrite_without_confirmation(self):
+        """已存在同名文件时，未带 overwrite 必须回 needs_confirmation 且不落盘。"""
+        import shutil
+        work = Path(tempfile.mkdtemp())
+        try:
+            self.allow_dir(work)
+            csv_text = "name,smiles\n,CO\n"
+            status, dry = self.post("/api/batch", {"csv": csv_text, "dir": str(work),
+                                                   "dryRun": True, "format": "png"})
+            target = Path(dry["targets"][0])
+            target.write_bytes(b"PRECIOUS")           # 假装用户已有文件
+            status, payload = self.post("/api/batch", {"csv": csv_text, "dir": str(work),
+                                                       "format": "png", "dpi": 72})
+            self.assertEqual(status, 200)
+            self.assertTrue(payload.get("needs_confirmation"), payload)
+            self.assertEqual(target.read_bytes(), b"PRECIOUS", "未经确认就动了已有文件")
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     def test_health(self):
         status, body = self.get("/api/health")
@@ -371,6 +438,161 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class GuiRequestBoundaryTests(unittest.TestCase):
+    """HTTP 请求边界（审计 security-01/02/03）：写盘范围、跨站、Host、Content-Type。
+
+    这些不是"学术性"检查 —— 服务虽然只监听回环，但**用户浏览器里的任何网页**都能
+    向 127.0.0.1 发跨站简单请求；修之前已复现"请求指定任意 dir 就把文件写到那里"。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls._tmp.name)
+        cls.out = cls.root / "out"
+        cls.elsewhere = cls.root / "elsewhere"
+        cls.elsewhere.mkdir(parents=True, exist_ok=True)
+        cls._old_cfg = os.environ.get("CHEMFIG_CONFIG_DIR")
+        os.environ["CHEMFIG_CONFIG_DIR"] = str(cls.root / "cfg")
+        cls.cfg = settings_mod.Settings.load()
+        cls.httpd, cls.port = gui_server.make_server(port=0, outdir=cls.out, cfg=cls.cfg)
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = "http://127.0.0.1:%d" % cls.port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        if cls._old_cfg is None:
+            os.environ.pop("CHEMFIG_CONFIG_DIR", None)
+        else:
+            os.environ["CHEMFIG_CONFIG_DIR"] = cls._old_cfg
+        cls._tmp.cleanup()
+
+    def raw_post(self, path, body, headers=None):
+        """发一个**原始**请求（可自定义 Origin/Host/Content-Type，模拟跨站页面）。"""
+        data = body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(self.base + path, data=data, method="POST")
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as res:
+                return res.status, json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def export_payload(self, directory=None, filename="x.png"):
+        payload = {"kind": "alcohol", "params": {"smiles": "CCO"},
+                   "filename": filename, "format": "png", "dpi": 72}
+        if directory is not None:
+            payload["dir"] = str(directory)
+        return payload
+
+    # ------------------------------------------------ security-01：写盘范围
+
+    def test_export_outside_outdir_is_rejected(self):
+        status, payload = self.raw_post("/api/export", self.export_payload(self.elsewhere),
+                                        {"Content-Type": "application/json"})
+        self.assertEqual(status, 403, payload)
+        self.assertFalse(payload["ok"])
+        self.assertIn("范围", payload["error"])
+        self.assertEqual(list(self.elsewhere.iterdir()), [], "越界请求竟然写了文件")
+
+    def test_batch_outside_outdir_is_rejected(self):
+        status, payload = self.raw_post("/api/batch",
+                                        {"csv": "name,smiles\n,CO\n",
+                                         "dir": str(self.elsewhere), "dryRun": True},
+                                        {"Content-Type": "application/json"})
+        self.assertEqual(status, 403, payload)
+        self.assertEqual(list(self.elsewhere.iterdir()), [])
+
+    def test_explicit_allowlist_permits_writing_there(self):
+        """用户显式加白名单后，就该能写 —— 否则功能被修死了。"""
+        status, payload = self.raw_post("/api/settings",
+                                        {"changes": {"allowedWriteDirs": [str(self.elsewhere)]}},
+                                        {"Content-Type": "application/json"})
+        self.assertEqual(status, 200, payload)
+        try:
+            status, payload = self.raw_post("/api/export",
+                                            self.export_payload(self.elsewhere, "allowed.png"),
+                                            {"Content-Type": "application/json"})
+            self.assertEqual(status, 200, payload)
+            self.assertTrue(payload["ok"])
+            self.assertTrue((self.elsewhere / "allowed.png").exists())
+        finally:
+            self.raw_post("/api/settings", {"changes": {"allowedWriteDirs": []}},
+                          {"Content-Type": "application/json"})
+            for leftover in self.elsewhere.iterdir():
+                leftover.unlink()
+
+    def test_default_write_root_is_outdir(self):
+        status, payload = self.raw_post("/api/export", self.export_payload(None, "plain.png"),
+                                        {"Content-Type": "application/json"})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue((self.out / "plain.png").exists())
+
+    # ------------------------------------------------ security-03：跨站
+
+    def test_cross_site_origin_is_rejected(self):
+        status, payload = self.raw_post("/api/export", self.export_payload(self.out, "evil.png"),
+                                        {"Content-Type": "application/json",
+                                         "Origin": "https://evil.example",
+                                         "Host": "127.0.0.1:%d" % self.port})
+        self.assertEqual(status, 403, payload)
+        self.assertIn("跨站", payload["error"])
+
+    def test_cross_site_settings_change_is_rejected(self):
+        """恶意页面不能借用户之手改设置（改了 outputDir 就等于改了写盘根）。"""
+        status, payload = self.raw_post("/api/settings",
+                                        {"changes": {"outputDir": str(self.elsewhere)}},
+                                        {"Content-Type": "application/json",
+                                         "Origin": "http://evil.example"})
+        self.assertEqual(status, 403, payload)
+        self.assertNotEqual(self.cfg.get("outputDir"), str(self.elsewhere))
+
+    def test_non_json_content_type_is_rejected(self):
+        """跨站"简单请求"只能发 text/plain / 表单，必须在这里被挡住。"""
+        for ctype in ("text/plain", "application/x-www-form-urlencoded", "multipart/form-data"):
+            with self.subTest(ctype=ctype):
+                status, payload = self.raw_post("/api/settings",
+                                                {"changes": {"outputDir": "/tmp/x"}},
+                                                {"Content-Type": ctype})
+                self.assertEqual(status, 403, payload)
+                self.assertIn("json", payload["error"].lower())
+
+    def test_dns_rebinding_host_is_rejected(self):
+        status, payload = self.raw_post("/api/export", self.export_payload(self.out, "r.png"),
+                                        {"Content-Type": "application/json",
+                                         "Host": "evil.example"})
+        self.assertEqual(status, 403, payload)
+        self.assertIn("Host", payload["error"])
+
+    def test_same_origin_loopback_is_allowed(self):
+        status, payload = self.raw_post("/api/export", self.export_payload(self.out, "same.png"),
+                                        {"Content-Type": "application/json",
+                                         "Origin": "http://127.0.0.1:%d" % self.port,
+                                         "Host": "127.0.0.1:%d" % self.port})
+        self.assertEqual(status, 200, payload)
+        self.assertTrue((self.out / "same.png").exists())
+
+    def test_localhost_origin_is_allowed(self):
+        """用 localhost 打开界面时也不能被自己挡住。"""
+        status, payload = self.raw_post("/api/export", self.export_payload(self.out, "lh.png"),
+                                        {"Content-Type": "application/json",
+                                         "Origin": "http://localhost:%d" % self.port,
+                                         "Host": "localhost:%d" % self.port})
+        self.assertEqual(status, 200, payload)
+
+    def test_get_requests_are_not_blocked(self):
+        """只拦写操作：GET（静态资源/健康检查）不受 Origin 限制。"""
+        status, body = 200, b""
+        with urllib.request.urlopen(self.base + "/api/health", timeout=20) as res:
+            status, body = res.status, res.read()
+        self.assertEqual(status, 200)
+        self.assertIn(b"ok", body)
+
+
 class GuiExportApiTests(unittest.TestCase):
     """导出接口：写盘 / 已存在先确认且不改 mtime / 覆盖 / 不可写（、12、13）。"""
 
@@ -396,8 +618,8 @@ class GuiExportApiTests(unittest.TestCase):
             os.environ["CHEMFIG_CONFIG_DIR"] = cls._old_cfg
         cls._tmp.cleanup()
 
-    def post(self, payload):
-        req = urllib.request.Request(self.base + "/api/export",
+    def post(self, payload, path="/api/export"):
+        req = urllib.request.Request(self.base + path,
                                      data=json.dumps(payload).encode("utf-8"),
                                      headers={"Content-Type": "application/json"},
                                      method="POST")
@@ -450,6 +672,11 @@ class GuiExportApiTests(unittest.TestCase):
         self.assertEqual(b"%PDF-", Path(pdf["outputs"]["pdf"]).read_bytes()[:5])
 
     def test_unwritable_directory_reports_readable_error(self):
+        # 先加白名单：这样测的才是"目录不可写"（400），而不是"越界"（403）
+        status, _payload = self.post(
+            {"changes": {"allowedWriteDirs": ["/System/definitely-not-writable"]}},
+            path="/api/settings")
+        self.assertEqual(status, 200)
         status, data = self.post(self.base_payload(dir="/System/definitely-not-writable",
                                                    filename="nope.png"))
         self.assertEqual(status, 400)

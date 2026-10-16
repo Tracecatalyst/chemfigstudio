@@ -59,11 +59,43 @@ def _safe_child(base: Path, name: str, *, allow_dirs: bool = False) -> Optional[
     return candidate
 
 
+def _path_within(candidate: Path, root: Path) -> bool:
+    """``candidate`` 是否落在 ``root`` 内（已解析真实路径，防符号链接绕过）。"""
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _origin_allowed(origin: str, host_header: str) -> bool:
+    """同源判定：``Origin`` 的主机必须是**回环地址**，且与 ``Host`` 一致。
+
+    为什么需要它：服务只监听回环，但用户浏览器里任何一个网页都能向
+    ``127.0.0.1:8765`` 发跨站 POST（简单请求不触发预检）。没有这道检查时，
+    恶意页面可以借用户之手改设置、写文件、读本地 CSV。
+    非浏览器客户端（curl/脚本）不带 ``Origin``，照常放行。
+    """
+    from urllib.parse import urlsplit
+    parts = urlsplit(origin)
+    host = (parts.hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "[::1]", "::1"):
+        return False
+    if host_header:
+        return parts.netloc.lower() == host_header.lower()
+    return True
+
+
 class GuiHandler(BaseHTTPRequestHandler):
     """HTTP 处理器；类属性 ``outdir`` / ``verbose`` 由 :func:`make_server` 注入。"""
 
     server_version = "chemfigstudio/%s" % __version__
     outdir: Path = Path.cwd()
+    #: GUI/批量允许写盘的根目录（默认只有 outdir；settings.allowedWriteDirs 可加）
+    write_roots: Tuple[Path, ...] = ()
+    #: 实际绑定地址与端口（由 make_server 注入，用于 Origin 同源判定）
+    bound_host: str = "127.0.0.1"
+    bound_port: int = 0
     verbose: bool = False
     settings: Optional["settings_mod.Settings"] = None            # 由 make_server 注入
     session: Optional["DocumentSession"] = None                   # 编辑会话（多标签 + 历史）
@@ -193,6 +225,8 @@ class GuiHandler(BaseHTTPRequestHandler):
     # ----------------------------------------------------------------- POST
     def do_POST(self) -> None:                                 # noqa: N802
         route = urlparse(self.path).path
+        if not self._check_request_origin():
+            return
         try:
             payload = self._read_json()
         except ValueError as exc:
@@ -219,6 +253,54 @@ class GuiHandler(BaseHTTPRequestHandler):
             self._handle_render3d(payload)
         else:
             self._send_json(404, {"ok": False, "error": "未知路径 %s" % route})
+
+    # -------------------------------------------------------------- 边界检查
+    def _write_roots(self) -> "Tuple[Path, ...]":
+        """允许写盘的目录集合：``outdir`` + 设置里的 ``allowedWriteDirs``。"""
+        roots = [self.outdir]
+        for entry in (self.cfg.get("allowedWriteDirs") or []):
+            roots.append(Path(str(entry)).expanduser())
+        return tuple(roots)
+
+    def _resolve_write_dir(self, requested: Optional[str]) -> Optional[Path]:
+        """把请求里的 ``dir`` 收口到允许写盘目录内；越界返回 ``None``。
+
+        此前 ``dir`` 直通 ``export_mod``，任何网页都能请求把文件写到文件系统任意位置
+        （已复现）。现在默认只能写 ``outdir``，要写别处必须在设置面板里显式加白名单
+        —— 那是用户自己的动作，不是第三方页面的。
+        """
+        roots = self._write_roots()
+        if not requested:
+            return roots[0]
+        candidate = Path(str(requested)).expanduser()
+        for root in roots:
+            if _path_within(candidate, root):
+                return candidate
+        return None
+
+    def _check_request_origin(self) -> bool:
+        """校验 Origin/Host/Content-Type；不合法时回 403 并返回 False。"""
+        from urllib.parse import urlsplit
+        origin = self.headers.get("Origin")
+        host_header = self.headers.get("Host") or ""
+        if origin and not _origin_allowed(origin, host_header):
+            self._send_json(403, {"ok": False, "error": "跨站请求被拒绝（Origin 不同源）"})
+            return False
+        # Host 头回环校验：DNS rebinding 会让主机名指向 127.0.0.1 但 Host 是外域名
+        if host_header:
+            host_name = (urlsplit("//" + host_header).hostname or "").lower()
+            if self.bound_host in ("127.0.0.1", "localhost", "::1"):
+                if host_name not in ("127.0.0.1", "localhost", "::1", ""):
+                    self._send_json(403, {"ok": False,
+                                          "error": "Host 不是回环地址，已拒绝"})
+                    return False
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype and ctype not in ("application/json", "text/json"):
+            # 表单/纯文本跨站简单请求会走到这里（它们无法带 application/json）
+            self._send_json(403, {"ok": False,
+                                  "error": "请求必须是 application/json"})
+            return False
+        return True
 
     # -------------------------------------------------------------- 具体接口
     def _read_json(self) -> Dict[str, Any]:
@@ -416,10 +498,20 @@ class GuiHandler(BaseHTTPRequestHandler):
                                       "error": i18n.t("batch.err.missing_column",
                                                       column="csv", columns="-")})
                 return
-            directory = payload.get("dir") or str(cfg.output_dir())
+            resolved = self._resolve_write_dir(payload.get("dir"))
+            if resolved is None:
+                self._send_json(403, {"ok": False,
+                                      "error": i18n.t("export.err.dir_not_allowed",
+                                                      dirs=", ".join(
+                                                          str(r) for r in self._write_roots()))})
+                return
+            directory = str(resolved)
             fmt = str(payload.get("format") or cfg.get("defaultFormat") or "png")
             template = str(payload.get("filenameTemplate") or "{index:02d}_{name}")
-            targets = batch_mod.target_paths(items, directory, formats=(fmt,),
+            # kind 必须在算待写文件之前解析：run_batch 用它作为 fallback，
+            # 两边不一致就会"确认了 A、实际覆盖 B"（数据丢失级缺陷）。
+            kind = str(payload.get("kind") or "alcohol")
+            targets = batch_mod.target_paths(items, directory, kind=kind, formats=(fmt,),
                                             filename_template=template)
         except RenderError as exc:
             self._send_json(400, {"ok": False, "error": str(exc)})
@@ -438,7 +530,6 @@ class GuiHandler(BaseHTTPRequestHandler):
                                   "message": i18n.t("export.exists_warning")})
             return
 
-        kind = str(payload.get("kind") or "alcohol")
         dpi = int(str(payload.get("dpi") or cfg.get("defaultDpi") or 300))
         try:
             report = batch_mod.run_batch(items, directory, kind=kind, formats=(fmt,),
@@ -482,10 +573,17 @@ class GuiHandler(BaseHTTPRequestHandler):
     def _handle_export(self, payload: Dict[str, Any]) -> None:
         """导出：先把"会写哪些文件/是否已存在"算出来，需要确认就交回前端。"""
         cfg = self.cfg
+        directory = self._resolve_write_dir(payload.get("dir"))
+        if directory is None:
+            self._send_json(403, {"ok": False,
+                                  "error": i18n.t("export.err.dir_not_allowed",
+                                                  dirs=", ".join(
+                                                      str(r) for r in self._write_roots()))})
+            return
         request = export_mod.ExportRequest(
             kind=str(payload.get("kind") or ""),
             params=payload.get("params") or {},
-            directory=payload.get("dir") or str(cfg.output_dir()),
+            directory=str(directory),
             filename=str(payload.get("filename") or ""),
             format=str(payload.get("format") or cfg.get("defaultFormat") or "png"),
             dpi=int(payload.get("dpi") or cfg.get("defaultDpi") or 300),
@@ -568,7 +666,8 @@ def make_server(host: str = "127.0.0.1", port: int = 8765,
     directory.mkdir(parents=True, exist_ok=True)
 
     handler = type("BoundGuiHandler", (GuiHandler,),
-                   {"outdir": directory, "verbose": verbose, "settings": cfg})
+                   {"outdir": directory, "verbose": verbose, "settings": cfg,
+                    "bound_host": host})
     last_error: Optional[OSError] = None
     attempts = 1 if port == 0 else tries
     for offset in range(attempts):
@@ -576,6 +675,9 @@ def make_server(host: str = "127.0.0.1", port: int = 8765,
         try:
             httpd = ThreadingHTTPServer((host, candidate), handler)
             httpd.daemon_threads = True
+            # 实际端口回填给 handler：Origin 同源判定要用它
+            # （handler 是 type(...) 动态生成的类，mypy 看不到这个属性 → setattr）
+            setattr(handler, "bound_port", httpd.server_address[1])
             return httpd, httpd.server_address[1]
         except OSError as exc:
             last_error = exc

@@ -52,7 +52,7 @@ make test                                            # 303 tests, hermetic (no n
 ### 1. Web GUI
 
 ```bash
-make gui            # starts http://127.0.0.1:8756 and opens it
+make gui            # starts http://127.0.0.1:8765 and opens it
 ```
 
 The GUI has three columns: **parameters** on the left, the **canvas** in the middle,
@@ -66,11 +66,11 @@ tab renames it. Undo/redo steps through a 100-deep history per tab.
 ### 2. Command line
 
 ```bash
-cd tools/chemfigstudio                       # or wherever you cloned it
+cd chemfigstudio                             # or wherever you cloned it
 PYTHONPATH=src python3 -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1
 PYTHONPATH=src python3 -m chemfigstudio.cli series --include-methanol -o series.png
 PYTHONPATH=src python3 -m chemfigstudio.cli reaction --n 4 --dh-mol -2670 --dpi 300
-PYTHONPATH=src python3 -m chemfigstudio.cli list
+PYTHONPATH=src python3 -m chemfigstudio.cli doctor
 ```
 
 Every subcommand accepts `--format png,svg`, `--dpi`, `--transparent`, `--json` (machine
@@ -159,7 +159,7 @@ The app is a thin Swift/WKWebView shell around the same local server. It is unsi
 ## Development
 
 ```bash
-make lint        # ruff
+make lint        # syntax check (ast.parse)
 make typecheck   # mypy
 make test        # 262 unit tests, hermetic
 ```
