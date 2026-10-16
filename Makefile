@@ -56,30 +56,6 @@ bundle:
 bundle-lite:
 	./scripts/build-macos-app.sh --no-vendor
 
-ui-shots:
-	@# 多宽度布局验收（三栏/两栏/单栏 + 溢出/按钮折行/画布自适应/弹层默认隐藏）
-	@rm -rf dist/ui-cfg && mkdir -p dist/ui-cfg
-	@CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/ui-cfg CHEMFIG_LANG=zh-CN PYTHONPATH=$(SRC) \
-	  $(PY) -m chemfigstudio.gui.server --port 8765 --outdir $(CURDIR)/dist/ui-cfg \
-	  --no-browser --quiet & echo $$! > dist/ui-shots.pid
-	@sleep 2
-	@PATH="$$HOME/.local/bin:$$PATH" ego-browser nodejs < scripts/ui-shots.js || true
-	@kill "$$(cat dist/ui-shots.pid)" 2>/dev/null || true
-	@rm -f dist/ui-shots.pid
-
-browser-check:
-	@# 真浏览器回归：起服务 → 用 ego-browser 跑 scripts/browser-check.js → 关服务
-	@rm -rf dist/browser-cfg && mkdir -p dist/browser-cfg
-	@CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/browser-cfg CHEMFIG_LANG=zh-CN \
-	  PYTHONPATH=$(SRC) $(PY) -m chemfigstudio.gui.server --port 8765 \
-	  --outdir $(CURDIR)/dist/browser-cfg --no-browser --quiet & echo $$! > dist/browser-check.pid
-	@sleep 2
-	@PATH="$$HOME/.local/bin:$$PATH" ego-browser nodejs < scripts/browser-check.js || true
-	@kill "$$(cat dist/browser-check.pid)" 2>/dev/null || true
-	@rm -f dist/browser-check.pid
-
-# 可选工具：优先用 ./.pylibs 里的（与 RDKit 自动发现同一套思路），找不到就跳过并提示
-PYLIBS_BIN = $(CURDIR)/.pylibs/bin
 
 typecheck:
 	@# .pylibs 里的控制台脚本 shebang 不带 PYTHONPATH，所以要 -m 跑

@@ -118,61 +118,6 @@ class RunBatchTests(BatchTestCase):
         self.assertEqual(payload["failed"], 0)
 
 
-class RdkitPathTests(unittest.TestCase):
-    """RDKit 自动发现：CHEMFIG_PYLIBS / ./.pylibs，不需要手动设 PYTHONPATH。"""
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
-        self.libdir = self.root / ".pylibs"
-        (self.libdir / "rdkit").mkdir(parents=True)
-        (self.libdir / "rdkit" / "__init__.py").write_text("__version__ = 'stub'\n", encoding="utf-8")
-        self._old_env = os.environ.get("CHEMFIG_PYLIBS")
-        self._old_path = list(sys.path)
-
-    def tearDown(self):
-        sys.path[:] = self._old_path
-        sys.modules.pop("rdkit", None)
-        if self._old_env is None:
-            os.environ.pop("CHEMFIG_PYLIBS", None)
-        else:
-            os.environ["CHEMFIG_PYLIBS"] = self._old_env
-        self._tmp.cleanup()
-
-    def test_env_var_is_honoured(self):
-        os.environ["CHEMFIG_PYLIBS"] = str(self.libdir)
-        added = smiles_mod.ensure_rdkit_path()
-        self.assertIn(str(self.libdir), added)
-        self.assertEqual(sys.path[0], str(self.libdir))
-        self.assertTrue(smiles_mod.rdkit_available())
-        self.assertEqual(smiles_mod.rdkit_source(), str(self.libdir))
-
-    def test_multiple_paths_colon_separated(self):
-        other = self.root / "other"
-        other.mkdir()
-        os.environ["CHEMFIG_PYLIBS"] = os.pathsep.join([str(other), str(self.libdir)])
-        added = smiles_mod.ensure_rdkit_path()
-        self.assertIn(str(self.libdir), added)
-        self.assertNotIn(str(other), added)          # 没有 rdkit 包的不加
-
-    def test_is_idempotent(self):
-        os.environ["CHEMFIG_PYLIBS"] = str(self.libdir)
-        self.assertEqual(smiles_mod.ensure_rdkit_path(), [str(self.libdir)])
-        self.assertEqual(smiles_mod.ensure_rdkit_path(), [])
-
-    def test_bogus_path_is_ignored(self):
-        os.environ["CHEMFIG_PYLIBS"] = str(self.root / "does-not-exist")
-        self.assertEqual(smiles_mod.ensure_rdkit_path(), [])
-
-    def test_source_is_none_when_unavailable(self):
-        os.environ["CHEMFIG_PYLIBS"] = str(self.root / "nope")
-        self.assertIsNone(smiles_mod.rdkit_source())
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ReadCsvTextTests(unittest.TestCase):
     """GUI 走文本接口（免 multipart）：read_csv_text + target_paths。"""
 

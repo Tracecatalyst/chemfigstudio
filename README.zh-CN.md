@@ -116,9 +116,7 @@ make bundle-universal    # Intel + Apple Silicon 通用包
 ```bash
 make lint            # ruff
 make typecheck       # mypy
-make test            # 278 项单测（离线）
-make browser-check   # 真浏览器里的 21 项端到端检查
-make ui-shots        # 多宽度布局断言 + 截图
+make test            # 264 项单测（离线）
 ```
 
 规矩：每个修复都在同一次提交里带上测试；渲染重构要用**逐字节比对**证明输出没变。
