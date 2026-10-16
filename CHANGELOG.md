@@ -30,6 +30,9 @@
   `01_alcohol.png` — silent data loss. Both now share one default and one fallback.
 - **Export file name showed a doubled extension** (`x.png.png`) when the typed name already
   had one. The file on disk was correct; the displayed path was not.
+- **RDKit auto-discovery silently gave up in deeply nested checkouts.** The upward search
+  window was a fixed 4 levels, which reaches the project root but not a `.pylibs` kept one
+  level above it. It is now configurable: `CHEMFIG_PYLIBS_DEPTH` (default 4, capped at 12).
 
 ### Docs
 

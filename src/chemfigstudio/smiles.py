@@ -70,8 +70,10 @@ _LINEAR_ALCOHOL_RE = re.compile(r"^C+O$", re.IGNORECASE)
 def _lib_candidates() -> List[Path]:
     """候选依赖目录（前插 sys.path 用）。
 
-    顺序：``CHEMFIG_PYLIBS`` → 仓库根 ``.pylibs`` → 当前目录 ``.pylibs``
-    → 仓库根 ``vendor``（原生 .app 内嵌的 rdkit/numpy 放在这里）。
+    顺序：``CHEMFIG_PYLIBS``（显式，可多个）→ 向上 ``CHEMFIG_PYLIBS_DEPTH`` 层
+    （默认 4）里的 ``.pylibs`` / ``vendor`` → 当前目录的 ``.pylibs`` / ``vendor``。
+
+    ``vendor`` 是原生 .app 内嵌依赖的位置（见 ADR-012）。
     """
     candidates: List[Path] = []
     env = os.environ.get("CHEMFIG_PYLIBS", "")
@@ -79,7 +81,15 @@ def _lib_candidates() -> List[Path]:
         if chunk.strip():
             candidates.append(Path(chunk).expanduser())
     here = Path(__file__).resolve()
-    for parent in list(here.parents)[:4]:                 # 仓库根附近
+    # 往上找几层？默认 4（够到"包目录 → 仓库根"），可用 CHEMFIG_PYLIBS_DEPTH 调大：
+    # 仓库嵌在很深的目录里时（例如 课程/chem/tools/chemfig-studio），根目录的 .pylibs
+    # 可能落在窗口之外 —— 与其猜一个魔数，不如让它可配（上限 12，防止一路爬到 /）。
+    try:
+        depth = int(os.environ.get("CHEMFIG_PYLIBS_DEPTH") or 4)
+    except ValueError:
+        depth = 4
+    depth = max(1, min(12, depth))
+    for parent in list(here.parents)[:depth]:
         candidates.append(parent / ".pylibs")
         candidates.append(parent / "vendor")              # 原生 app 的内嵌依赖
     candidates.append(Path.cwd() / ".pylibs")
