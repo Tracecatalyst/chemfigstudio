@@ -178,12 +178,30 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/` | 返回 `static/index.html` |
-| GET | `/static/<file>` | 静态资源（限制在 `gui/static/` 内） |
+| GET | `/viewer3d` | 3D 查看器页面（3Dmol.js ~0.5 MB 按需加载） |
+| GET | `/static/<file>` | 静态资源（限制在 `gui/static/` 内，**允许 `vendor/` 子目录**） |
+| GET | `/preview/<file>` | 编辑器的**不落盘预览**（在配置目录里，不写用户输出目录） |
 | GET | `/out/<file>` | 预览已生成的图（限制在 `--outdir` 内） |
 | GET | `/api/health` | `{"ok":true,"version":…,"outdir":…,"figures":[…kind]}` |
 | GET | `/api/figures` | 参数表：`{"ok":true,"figures":[FigureSpec.as_dict()…],"outdir":…}` |
+| GET | `/api/documents` | 草稿列表（崩溃/关窗后可恢复） |
+| GET | `/api/documents/<id>` | 读取某份草稿 |
+| GET | `/api/plugins` | 已加载插件与错误 |
+| GET | `/api/i18n/<lang>` | 文案目录 catalog（前端 `t()` 用它；`auto` = 当前语言） |
 | POST | `/api/render` | 见下 |
+| POST | `/api/render3d` | `{"smiles":"CCO"}` → **3D 几何数据**（molblock + 分子式/能量/方法）。缺 RDKit → **503**（不是 400） |
+| POST | `/api/preview` | 画布预览（只落配置目录） |
+| POST | `/api/export` | 导出 PNG/SVG/PDF；**写盘根受 `allowedWriteDirs` 限制** |
+| POST | `/api/batch` | CSV → 多张图；`dryRun` 只回报将写哪些文件（供覆盖确认） |
+| POST | `/api/session` | 多标签会话：新建/关闭/切换/撤销/重做/应用参数 |
+| POST | `/api/documents` | 保存草稿 |
 | POST | `/api/reveal` | `{"file":"x.png"}` → 在 Finder 中显示（macOS） |
+| PUT | `/api/settings` | 更新设置（与 POST 同处理） |
+
+**请求边界（v0.4.1）**：`/api/export` 与 `/api/batch` 的 `dir` 只能落在「输出目录」或
+设置里的 `allowedWriteDirs` 内，越界返回 **403**；所有改写请求还要通过同源 `Origin`、
+回环 `Host`（挡 DNS rebinding）与 `application/json` 三道校验。非浏览器客户端
+（curl/脚本）不带 `Origin`，照常放行。
 
 `POST /api/render` 请求：
 
