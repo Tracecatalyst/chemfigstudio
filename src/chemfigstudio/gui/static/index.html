@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="gui.title">chemfigstudio</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1 data-i18n="app.name">chemfigstudio</h1>
+      <p class="sub" data-i18n="gui.subtitle"></p>
+    </div>
+    <div class="topbar">
+      <label class="inline">
+        <span data-i18n="gui.language">Language</span>
+        <select id="language"></select>
+      </label>
+      <button id="open-settings" data-i18n="gui.settings">Settings</button>
+    </div>
+  </header>
+
+
+  <main>
+    <section class="panel side side-left" id="form-panel">
+      <div class="actions tabs-actions">
+        <button id="tab-new" data-i18n="gui.tab.new">New tab</button>
+        <button id="tab-close" data-i18n="gui.tab.close">Close tab</button>
+        <button id="undo" data-i18n="gui.undo">Undo</button>
+        <button id="redo" data-i18n="gui.redo">Redo</button>
+      </div>
+      <p class="hint" data-i18n="gui.tab.rename_hint">双击标签可改名</p>
+      <label class="row">
+        <span class="lbl" data-i18n="gui.kind">Figure kind</span>
+        <select id="kind"></select>
+      </label>
+      <p class="desc" id="kind-desc"></p>
+      <div id="fields"></div>
+
+      <label class="row">
+        <span class="lbl" data-i18n="gui.filename">File name</span>
+        <input id="filename" type="text" spellcheck="false">
+      </label>
+
+      <div class="actions">
+        <button id="render" class="primary" data-i18n="gui.render">Generate</button>
+        <button id="reveal" disabled data-i18n="gui.reveal">Show in Finder</button>
+        <button id="open-export" data-i18n="gui.export">Export image…</button>
+        <button id="copy-image" data-i18n="gui.copy">Copy image</button>
+        <button id="open-batch" data-i18n="gui.batch">Batch…</button>
+        <button id="open-skeleton" data-i18n="gui.skeleton">Edit skeleton</button>
+      </div>
+      <p class="hint" id="outdir-hint"></p>
+      <p class="error" id="error" hidden></p>
+    </section>
+
+    <!-- 中栏：画布（自适应） -->
+    <section class="panel canvas-panel">
+      <div class="tabstrip" id="tabs"></div>
+      <h2 data-i18n="gui.preview">Preview</h2>
+      <div id="preview-wrap">
+        <p class="empty" id="empty" data-i18n="gui.empty"></p>
+        <img id="preview" alt="preview" hidden>
+      </div>
+    </section>
+
+    <!-- 右栏：图层 + 文件信息 + 告警 -->
+    <aside class="side side-right">
+      <section class="panel">
+        <h2 data-i18n="gui.layers">Layers</h2>
+        <ul class="layers" id="layers"></ul>
+      </section>
+      <section class="panel">
+        <h2 data-i18n="gui.meta.file">File</h2>
+        <ul class="meta">
+          <li><span data-i18n="gui.meta.file">File</span><code id="path">-</code></li>
+          <li><span data-i18n="gui.meta.size">Size</span><code id="size">-</code></li>
+        </ul>
+        <div id="warnings"></div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- 设置面板（默认隐藏） -->
+  <section id="settings-panel" class="sheet" hidden>
+    <div class="sheet-card">
+      <h2 data-i18n="settings.title">Settings</h2>
+      <label class="row">
+        <span class="lbl" data-i18n="settings.language">Language</span>
+        <select id="set-language"></select>
+      </label>
+      <label class="row">
+        <span class="lbl" data-i18n="settings.output_dir">Output directory</span>
+        <input id="set-output-dir" type="text" spellcheck="false">
+      </label>
+      <label class="row">
+        <span class="lbl" data-i18n="settings.default_format">Default format</span>
+        <select id="set-format">
+          <option value="png">PNG</option>
+          <option value="svg">SVG</option>
+          <option value="pdf">PDF</option>
+        </select>
+      </label>
+      <label class="row">
+        <span class="lbl" data-i18n="settings.default_dpi">Default DPI</span>
+        <input id="set-dpi" type="number" min="72" max="1200" step="6">
+      </label>
+      <label class="row">
+        <span class="lbl" data-i18n="settings.transparent">Transparent background</span>
+        <input id="set-transparent" type="checkbox">
+      </label>
+      <p class="hint" id="settings-path"></p>
+      <div class="actions">
+        <button id="save-settings" class="primary" data-i18n="settings.save">Save</button>
+        <button id="close-settings" data-i18n="gui.settings.close">Close</button>
+      </div>
+      <p class="hint" id="settings-status"></p>
+    </div>
+  </section>
+
+  <!-- 导出对话框（、12） -->
+  <section id="export-panel" class="sheet" hidden>
+    <div class="sheet-card">
+      <h2 data-i18n="export.title">Export image</h2>
+      <label class="row"><span class="lbl" data-i18n="export.dir">Directory</span>
+        <input id="ex-dir" type="text" spellcheck="false"></label>
+      <label class="row"><span class="lbl" data-i18n="export.filename">File name</span>
+        <input id="ex-filename" type="text" spellcheck="false"></label>
+      <label class="row"><span class="lbl" data-i18n="export.format">Format</span>
+        <select id="ex-format"><option value="png">PNG</option><option value="svg">SVG</option>
+          <option value="pdf">PDF</option></select></label>
+      <label class="row"><span class="lbl" data-i18n="export.dpi">Resolution (DPI)</span>
+        <input id="ex-dpi" type="number" min="72" max="1200" step="6"></label>
+      <label class="row"><span class="lbl" data-i18n="export.transparent">Transparent</span>
+        <input id="ex-transparent" type="checkbox"></label>
+      <div class="actions">
+        <button id="do-export" class="primary" data-i18n="export.button">Export</button>
+        <button id="confirm-export" hidden data-i18n="export.overwrite">Overwrite</button>
+        <button id="close-export" data-i18n="export.cancel">Cancel</button>
+      </div>
+      <p class="hint" id="export-status"></p>
+    </div>
+  </section>
+
+  <!-- 批量导出 -->
+  <section id="batch-panel" class="sheet" hidden>
+    <div class="sheet-card">
+      <h2 data-i18n="batch.title">Batch export (CSV)</h2>
+      <p class="hint" data-i18n="batch.hint_columns">Columns: name, smiles, delta_h</p>
+      <label class="row"><span class="lbl" data-i18n="batch.pick_file">CSV file</span>
+        <input id="batch-file" type="file" accept=".csv,.txt"></label>
+      <textarea id="batch-csv" rows="6" spellcheck="false"></textarea>
+      <label class="row"><span class="lbl" data-i18n="export.dir">Directory</span>
+        <input id="batch-dir" type="text" spellcheck="false"></label>
+      <label class="row"><span class="lbl" data-i18n="export.format">Format</span>
+        <select id="batch-format"><option value="png">PNG</option><option value="svg">SVG</option>
+          <option value="pdf">PDF</option></select></label>
+      <label class="row"><span class="lbl" data-i18n="export.dpi">Resolution (DPI)</span>
+        <input id="batch-dpi" type="number" min="72" max="1200" step="6" value="300"></label>
+      <div class="actions">
+        <button id="batch-parse" data-i18n="batch.parse">Preview rows</button>
+        <button id="batch-run" class="primary" data-i18n="batch.run">Export all</button>
+        <button id="batch-close" data-i18n="export.cancel">Cancel</button>
+      </div>
+      <p class="hint" id="batch-status"></p>
+      <ul class="layers" id="batch-rows"></ul>
+    </div>
+  </section>
+
+  <!-- 骨架编辑器（阶段⑤） -->
+  <section id="sk-panel" class="sheet" hidden>
+    <div class="sheet-card">
+      <h2 data-i18n="sk.title">Edit skeleton</h2>
+      <div class="actions">
+        <label class="inline"><span data-i18n="sk.mode">Mode</span>
+          <select id="sk-mode">
+            <option value="move" data-i18n="sk.mode_move">Move</option>
+            <option value="add" data-i18n="sk.mode_add">Add atom</option>
+            <option value="bond" data-i18n="sk.mode_bond">Add bond</option>
+            <option value="delete" data-i18n="sk.mode_delete">Delete atom</option>
+            <option value="order" data-i18n="sk.mode_order">Cycle bond order</option>
+          </select></label>
+        <label class="inline"><span data-i18n="sk.element">Element</span>
+          <select id="sk-element">
+            <option>C</option><option>H</option><option>O</option><option>N</option>
+            <option>S</option><option>Cl</option><option>Br</option><option>P</option>
+          </select></label>
+        <label class="inline"><input id="sk-snap" type="checkbox" checked>
+          <span data-i18n="sk.snap">Snap angles/lengths</span></label>
+        <button id="sk-reset" data-i18n="sk.reset">Reset to chain</button>
+        <button id="sk-close" data-i18n="export.cancel">Cancel</button>
+      </div>
+      <ul class="layers" id="sk-molecules"></ul>
+      <canvas id="sk-canvas" width="720" height="420"></canvas>
+      <p class="hint" id="sk-status"></p>
+      <div class="actions">
+        <button id="sk-apply" class="primary" data-i18n="sk.apply">Apply to canvas</button>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span id="version"></span> ·
+    <code>make gui</code> · <code>make test</code> · README.md
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

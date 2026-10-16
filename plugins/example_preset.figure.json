@@ -1,0 +1,8 @@
+{
+  "kind": "butanol_report",
+  "base": "alcohol",
+  "title": "丁醇（报告用固定参数）",
+  "description": "预置：butan-1-ol + 文献 ΔHc = -36.1 kJ/mol",
+  "params": {"smiles": "CCCCO", "name": "butan-1-ol", "delta_h": "-36.1"},
+  "default_filename": "butanol.png"
+}

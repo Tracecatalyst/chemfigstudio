@@ -1,0 +1,109 @@
+# chemfigstudio — 常用命令（GUI / CLI / 测试 / 出图）
+#
+# 所有命令都假定在仓库根目录（tools/chemfig-studio/）执行。
+# 无需安装：源码在 src/，靠 PYTHONPATH 引入。
+
+PY      ?= python3
+SRC     := src
+OUT     ?= examples/out
+PYTHONPATH_ENV := PYTHONPATH=$(SRC)
+
+# 不写字节码缓存：沙箱/只读环境下更稳，也少一个要 gitignore 的目录
+export PYTHONDONTWRITEBYTECODE := 1
+
+.PHONY: help test test-gui figures gui app bundle bundle-lite bundle-universal browser-check ui-shots clean lint doctor typecheck format
+
+help:
+	@echo "make test      - 跑全部单元测试（core / figures / cli / gui）"
+	@echo "make figures   - 用 CLI 生成 4 张示例图到 $(OUT)/"
+	@echo "make gui       - 启动本地网页 GUI（默认 http://127.0.0.1:8765）"
+	@echo "make app       - 打开 macOS 原生应用（首次会自动编译）"
+	@echo "make bundle    - 编译 dist/ChemFigStudio.app（内嵌 Pillow，约 13 MB）"
+	@echo "make bundle-lite - 同上但不内嵌 Pillow（约 400 KB，目标机需自备 Pillow）"
+	@echo "make browser-check - 真浏览器回归（需 ego-browser；覆盖 JS：语言/预览/导出对话框/草稿）"
+	@echo "make ui-shots     - 多宽度布局验收（1440/1280/1024/768/380 + 深色）"
+	@echo "make bundle-universal - 通用二进制（arm64 + x86_64，lipo 合并）"
+	@echo "make lint      - 语法编译检查（compileall）"
+	@echo "make doctor    - 打印环境自检（python / Pillow / 字体 / RDKit）"
+	@echo "make clean     - 清掉 __pycache__ 与临时输出"
+	@echo ""
+	@echo "覆盖变量示例： make gui OUT=~/Desktop/chemfig-out"
+
+test:
+	@# 测试隔离：不读用户真实设置（否则语言/DPI/默认输出目录会让结果随机器变化）
+	@rm -rf dist/test-cfg
+	PYTHONPATH=$(SRC) CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/test-cfg CHEMFIG_LANG=zh-CN \
+	  $(PY) -m unittest discover -s tests -v
+
+figures:
+	@mkdir -p $(OUT)
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1 -o $(OUT)/图1_丁醇.png
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli series     -o $(OUT)/图3_醇系列.png
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli reaction   -o $(OUT)/图2_燃烧反应.png
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli chcount    -o $(OUT)/图4_丁醇的CH键.png
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli enthalpy   -o $(OUT)/图5_燃烧焓对比.png
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli esterification --acid-carbons 2 --alcohol-carbons 2 -o $(OUT)/图6_酯化反应.png
+
+gui:
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.gui.server --outdir $(OUT)
+
+app:
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli app
+
+bundle:
+	./scripts/build-macos-app.sh
+
+bundle-lite:
+	./scripts/build-macos-app.sh --no-vendor
+
+ui-shots:
+	@# 多宽度布局验收（三栏/两栏/单栏 + 溢出/按钮折行/画布自适应/弹层默认隐藏）
+	@rm -rf dist/ui-cfg && mkdir -p dist/ui-cfg
+	@CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/ui-cfg CHEMFIG_LANG=zh-CN PYTHONPATH=$(SRC) \
+	  $(PY) -m chemfigstudio.gui.server --port 8765 --outdir $(CURDIR)/dist/ui-cfg \
+	  --no-browser --quiet & echo $$! > dist/ui-shots.pid
+	@sleep 2
+	@PATH="$$HOME/.local/bin:$$PATH" ego-browser nodejs < scripts/ui-shots.js || true
+	@kill "$$(cat dist/ui-shots.pid)" 2>/dev/null || true
+	@rm -f dist/ui-shots.pid
+
+browser-check:
+	@# 真浏览器回归：起服务 → 用 ego-browser 跑 scripts/browser-check.js → 关服务
+	@rm -rf dist/browser-cfg && mkdir -p dist/browser-cfg
+	@CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/browser-cfg CHEMFIG_LANG=zh-CN \
+	  PYTHONPATH=$(SRC) $(PY) -m chemfigstudio.gui.server --port 8765 \
+	  --outdir $(CURDIR)/dist/browser-cfg --no-browser --quiet & echo $$! > dist/browser-check.pid
+	@sleep 2
+	@PATH="$$HOME/.local/bin:$$PATH" ego-browser nodejs < scripts/browser-check.js || true
+	@kill "$$(cat dist/browser-check.pid)" 2>/dev/null || true
+	@rm -f dist/browser-check.pid
+
+# 可选工具：优先用 ./.pylibs 里的（与 RDKit 自动发现同一套思路），找不到就跳过并提示
+PYLIBS_BIN = $(CURDIR)/.pylibs/bin
+
+typecheck:
+	@# .pylibs 里的控制台脚本 shebang 不带 PYTHONPATH，所以要 -m 跑
+	@if [ -d "$(CURDIR)/.pylibs/mypy" ]; then PYTHONPATH=$(CURDIR)/.pylibs $(PY) -m mypy ; \
+	elif command -v mypy >/dev/null 2>&1; then mypy ; \
+	else echo "SKIPPED：mypy 未安装（装法：python3 -m pip install --target ./.pylibs mypy）"; fi
+
+format:
+	@if [ -d "$(CURDIR)/.pylibs/black" ]; then PYTHONPATH=$(CURDIR)/.pylibs $(PY) -m black src tests ; \
+	elif command -v black >/dev/null 2>&1; then black src tests ; \
+	else echo "SKIPPED：black 未安装（装法：python3 -m pip install --target ./.pylibs black）"; fi
+
+lint:
+	$(PY) -c "import ast, pathlib; files = sorted(list(pathlib.Path('$(SRC)').rglob('*.py')) + list(pathlib.Path('tests').rglob('*.py'))); [ast.parse(p.read_text(encoding='utf-8'), filename=str(p)) for p in files]; print('语法检查 OK：%d 个文件' % len(files))"
+
+doctor:
+	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli doctor
+
+bundle-universal:
+	@# 通用二进制（Apple Silicon + Intel）：分别编译再 lipo 合并
+	@bash scripts/build-macos-app.sh --arch arm64 --out dist/universal-arm64
+	@bash scripts/build-macos-app.sh --arch x86_64 --out dist/universal-x86_64
+	@bash scripts/make-universal.sh
+
+clean:
+	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
+	rm -rf /tmp/chemfigstudio-*

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chemfigstudio"
+version = "0.2.0"
+description = "Textbook-style condensed-structure chemistry figures (condensed formula + lone pairs) with a local web GUI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Tracecatalyst" }]
+keywords = ["chemistry", "figures", "matplotlib-free", "pillow", "condensed-formula"]
+dependencies = [
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+# 只有 --smiles 输入需要 RDKit；没装 RDKit 时其它功能照常工作。
+smiles = ["rdkit>=2022.9"]
+
+[project.scripts]
+chemfigstudio = "chemfigstudio.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+chemfigstudio = ["gui/static/*", "locales/*.json"]
+
+# ── 静态检查与格式化（工具可选：本机没装也能用 make test）──────────────
+# 装法：python3 -m pip install --target ./.pylibs mypy black
+[tool.mypy]
+python_version = "3.9"
+files = ["src/chemfigstudio"]
+ignore_missing_imports = true          # Pillow / rdkit 是可选依赖
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = ['legacy/', 'dist/', '.pylibs/']
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+extend-exclude = '''legacy/|dist/|.pylibs/'''
