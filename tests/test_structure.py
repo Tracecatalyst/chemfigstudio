@@ -240,6 +240,73 @@ class WedgeConventionTests(unittest.TestCase):
         self.assertEqual(wedge.wedge, WEDGE_DOWN)
 
 
+class WedgeRenderingTests(unittest.TestCase):
+    """楔形必须真的被画出来 —— 模型里存了不等于画得出来。
+
+    （踩过：`_draw_hashed_wedge` 漏移植时全部单测仍是绿的，因为没有一条测试
+      真的走"虚线楔形"这条渲染分支。所以这里对**三种键**都出图比对。）
+    """
+
+    @staticmethod
+    def _render(tmp, wedge_code, name):
+        """出图并返回 (字节, 墨迹像素数)。"""
+        from pathlib import Path
+
+        from PIL import Image
+        from chemfigstudio import figures
+
+        block = ETHANOL_BLOCK.replace("  2  3  1  0", "  2  3  1  %s" % wedge_code)
+        target = Path(tmp) / ("%s.png" % name)
+        result = figures.skeleton_figure(str(target), skeleton=block,
+                                         formats=("png",), dpi=150)
+        assert result.warnings == [], result.warnings
+        data = target.read_bytes()
+        with Image.open(target) as image:
+            rgb = image.convert("RGB")
+            ink = sum(1 for pixel in rgb.getdata() if pixel != (255, 255, 255))
+        return data, ink
+
+    def test_all_three_bond_kinds_render_and_differ(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plain, plain_ink = self._render(tmp, "0", "plain")
+            wedge, wedge_ink = self._render(tmp, "1", "wedge")
+            hashed, hashed_ink = self._render(tmp, "6", "hashed")
+
+        # 三张图必须互不相同：说明三种键型都真的画了不同东西
+        self.assertNotEqual(plain, wedge, "实心楔形与普通线画出来一样")
+        self.assertNotEqual(plain, hashed, "虚线楔形与普通线画出来一样")
+        self.assertNotEqual(wedge, hashed, "实心与虚线楔形画出来一样")
+        # 三种都会画出墨迹（非空图）——但**不要**断言"谁用墨更多"：
+        # 虚线是 7 段**渐长**的短线，总和未必比一条粗实线多（实测更少），
+        # 那种断言只是把猜测写进测试。
+        for name, ink in (("plain", plain_ink), ("wedge", wedge_ink),
+                          ("hashed", hashed_ink)):
+            self.assertGreater(ink, 0, "%s 渲染出来是空白" % name)
+
+    def test_hashed_wedge_from_a_real_chiral_molecule(self):
+        """端到端：手性分子的楔形要能画出来（这是渲染分支的真实入口）。"""
+        from chemfigstudio import smiles as smiles_mod
+
+        if not smiles_mod.rdkit_available():
+            self.skipTest("没装 RDKit（可选依赖）")
+
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import api
+
+        result = structure.from_smiles("C[C@H](N)C(=O)O")
+        self.assertTrue([b for b in result.skeleton.bonds if b.wedge != WEDGE_NONE])
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "alanine.png"
+            rendered = api.render("skeleton", out=str(target), params={
+                "skeleton": result.skeleton.to_json(), "title": "L-alanine"})
+            self.assertEqual(rendered.warnings, [])
+            self.assertTrue(target.exists())
+
+
 class RoundTripTests(unittest.TestCase):
     """导入 → 导出 JSON → 再读回来，不能丢信息。"""
 

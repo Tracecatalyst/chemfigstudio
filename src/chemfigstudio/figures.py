@@ -600,6 +600,39 @@ def _draw_bond(draw, first: Tuple[float, float], second: Tuple[float, float], bo
                   fill=INK, width=width)
 
 
+def _draw_wedge(draw, first: Tuple[float, float], second: Tuple[float, float]) -> None:
+    """实心楔形（朝观察者）：**窄端在 ``first``（立体中心）**，向 ``second`` 张开。
+
+    立体化学的读法全在"哪一端是尖的"：尖的那端才是决定构型的原子。
+    所以 ``first`` 必须是立体中心 —— 画反了就是另一种对映体（化学错误，不是审美问题）。
+    """
+    ax, ay = first
+    bx, by = second
+    dx, dy = bx - ax, by - ay
+    length = max(1.0, (dx * dx + dy * dy) ** 0.5)
+    nx, ny = -dy / length, dx / length                 # 单位法向
+    half = 7.0                                          # 宽端的半宽
+    draw.polygon([(ax, ay), (bx + nx * half, by + ny * half),
+                  (bx - nx * half, by - ny * half)], fill=INK)
+
+
+def _draw_hashed_wedge(draw, first: Tuple[float, float], second: Tuple[float, float]) -> None:
+    """虚线楔形（朝里）：**窄端在 ``first``**，向 ``second`` 逐渐变长。"""
+    ax, ay = first
+    bx, by = second
+    dx, dy = bx - ax, by - ay
+    length = max(1.0, (dx * dx + dy * dy) ** 0.5)
+    nx, ny = -dy / length, dx / length
+    steps = 7
+    for index in range(1, steps + 1):
+        t = index / float(steps)
+        cx, cy = ax + dx * t, ay + dy * t
+        half = 7.0 * t                                  # t=1 时最宽 → 宽端在 second
+        draw.line([cx + nx * half, cy + ny * half, cx - nx * half, cy - ny * half],
+                  fill=INK, width=2)
+
+
+#: 太大而塞不进原子圆点的标签字号（导入真实分子时标签会比手画的长）
 _LABEL_FONT = 19
 _LABEL_SUB = 13
 
