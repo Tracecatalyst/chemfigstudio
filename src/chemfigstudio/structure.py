@@ -250,48 +250,65 @@ def _scale_and_flip(skeleton: Skeleton, bond_px: float) -> None:
         atom.y = round(-atom.y * factor, 2)      # y 翻转
 
 
+#: 常见元素的中性价（用于**按价键环境**推断氢数，而不是按元素查表）
+_DEFAULT_VALENCE = {"C": 4, "N": 3, "O": 2, "S": 2, "P": 3, "B": 3}
+
+
 def _assign_default_labels(skeleton: Skeleton) -> None:
-    """给"需要写出来的"原子填默认标签，让导入结果看起来像结构式。
+    """给"需要写出来的"原子填默认标签 —— **按价键环境推**，不是按元素查表。
+
+    为什么要按环境：同一个元素在分子里的氢数不同。咖啡因里有三个氮，两个是
+    N-甲基（只连 2 个重原子）、一个是环内 =N-（连 2 个且有双键）；一律写 ``NH_{2}``
+    就画错了。专业工具都是这么做的（看连了几个重原子、有几根重键）。
 
     规则：
-    * 骨架碳（只连碳）不写字 —— 结构式里碳骨架是线，写字会满屏都是 ``CH_{3}``。
-    * 非碳原子写默认基团/元素符号（``OH`` / ``NH_{2}`` / ``Cl`` …）。
-    * **重键上的原子退回元素符号**：羧基里的双键氧要写 ``O`` 而不是 ``OH``，
-      羰基同理。这个坑很隐蔽 —— 全都写 ``OH`` 的话图看起来没问题，化学是错的。
+    * **碳**：端基写 ``CH_{3}``（连 1 个重原子），骨架碳留空 —— 结构式里碳是线。
+    * **其它元素**：氢数 = 价 − Σ(键级)，写成 ``OH`` / ``NH`` / ``NH_{2}`` / 元素符号；
+      按重键数正确退化成 ``O``（羰基）、``N``（=N−）等。
+    * 带电原子在标签后加上标（``N^{+}`` / ``O^{-}``）。
     """
     from .skeleton import ELEMENT_LABELS
 
-    multiple = set()                             # 落在重键上的原子
+    order_sum: Dict[str, int] = {}
+    degree: Dict[str, int] = {}
     for bond in skeleton.bonds:
-        if bond.order > 1:
-            multiple.add(bond.a)
-            multiple.add(bond.b)
+        for end in (bond.a, bond.b):
+            order_sum[end] = order_sum.get(end, 0) + bond.order
+            degree[end] = degree.get(end, 0) + 1
 
     for atom in skeleton.atoms:
-        if atom.label:
-            continue
-        if atom.element == "C":
-            # 碳一律交给"是不是端基"决定：端基写 CH_{3}，骨架碳留空让线自己说话。
-            # （曾经这里写成 if 重键 / elif 重键 / else 默认标签，于是**每个单键碳**
-            #   都落到 else 被标成 CH_{3} —— 阿司匹林画成了一堆甲基。）
-            atom.label = "CH_{3}" if _is_terminal_carbon(skeleton, atom) else ""
-        elif atom.id in multiple:
-            atom.label = atom.element                # 双键氧 → "O"，不写 OH
-        else:
-            atom.label = ELEMENT_LABELS.get(atom.element, atom.element)
+        if not atom.label:
+            if atom.element == "C":
+                atom.label = "CH_{3}" if degree.get(atom.id, 0) <= 1 else ""
+            else:
+                atom.label = _hetero_label(atom, order_sum.get(atom.id, 0),
+                                           degree.get(atom.id, 0))
         if atom.charge:
             sign = "+" if atom.charge > 0 else "-"
             magnitude = "" if abs(atom.charge) == 1 else str(abs(atom.charge))
             atom.label = (atom.label or atom.element) + "^{%s%s}" % (sign, magnitude)
 
 
-def _is_terminal_carbon(skeleton: Skeleton, atom: Atom) -> bool:
-    """这个碳是不是链端（只连 1 个重原子）—— 端基要写出 ``CH_{3}``。"""
-    neighbours = 0
-    for bond in skeleton.bonds:
-        if atom.id in (bond.a, bond.b):
-            neighbours += 1
-    return neighbours <= 1
+def _hetero_label(atom: Atom, bond_order_sum: int, degree: int) -> str:
+    """非碳原子的标签：按"还差几个氢"写。
+
+    ``O`` 连 1 个单键 → ``OH``；``O`` 有双键 → ``O``；``N`` 连 2 个 → ``NH``；
+    ``N`` 连 3 个 → ``N``。价不知道的元素退回元素符号（**不发明化学写法**）。
+    """
+    from .skeleton import ELEMENT_LABELS
+
+    valence = _DEFAULT_VALENCE.get(atom.element)
+    if valence is None:
+        return ELEMENT_LABELS.get(atom.element, atom.element)
+
+    hydrogens = valence - bond_order_sum + atom.charge
+    if hydrogens <= 0:
+        return atom.element
+    if hydrogens == 1:
+        return "H" if atom.element == "C" else "%sH" % atom.element
+    from . import core
+
+    return "%sH_{%d}" % (atom.element, hydrogens)
 
 
 # -------------------------------------------------------------------- SMILES

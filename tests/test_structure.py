@@ -240,6 +240,64 @@ class WedgeConventionTests(unittest.TestCase):
         self.assertEqual(wedge.wedge, WEDGE_DOWN)
 
 
+class HeteroatomLabelTests(unittest.TestCase):
+    """杂原子标签要**按价键环境**推，不能按元素查表。
+
+    踩过：一律套 ``ELEMENT_LABELS``，于是咖啡因的三个氮全被写成 ``NH_{2}``
+    —— 而它们是 N-甲基（连 2 个重原子）与环内 =N-（无氢）。专业工具都是看
+    "连了几个重原子、有几根重键"来定标签的。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from chemfigstudio import smiles as smiles_mod
+        cls.available = smiles_mod.rdkit_available()
+
+    def setUp(self):
+        if not self.available:
+            self.skipTest("没装 RDKit（可选依赖）")
+
+    @staticmethod
+    def _labels(smiles, element):
+        result = structure.from_smiles(smiles)
+        return sorted({a.label for a in result.skeleton.atoms if a.element == element})
+
+    def test_caffeine_nitrogens_have_no_hydrogen(self):
+        """咖啡因的四个氮：两个 N-甲基、两个环内 =N-，**都不带氢**。"""
+        self.assertEqual(self._labels("CN1C=NC2=C1C(=O)N(C)C(=O)N2C", "N"), ["N"])
+
+    def test_pyrrole_has_exactly_one_NH(self):
+        """吡咯：环内那个 N 带 1 个氢（画成 NH），不是 N 也不是 NH_{2}。"""
+        self.assertEqual(self._labels("c1cc[nH]c1", "N"), ["NH"])
+
+    def test_pyridine_nitrogen_bare(self):
+        self.assertEqual(self._labels("c1ccncc1", "N"), ["N"])
+
+    def test_amine_and_alcohol(self):
+        self.assertEqual(self._labels("NCCO", "N"), ["NH_{2}"])
+        self.assertEqual(self._labels("NCCO", "O"), ["OH"])
+
+    def test_carbonyl_oxygen_is_bare_and_hydroxyl_keeps_its_hydrogen(self):
+        labels = self._labels("CC(=O)O", "O")
+        self.assertEqual(labels, ["O", "OH"])
+
+    def test_phenol_hydroxyl_is_kept(self):
+        self.assertEqual(self._labels("O=C(O)c1ccccc1O", "O"), ["O", "OH"])
+
+    def test_terminal_carbon_is_methyl_but_ring_carbon_is_bare(self):
+        result = structure.from_smiles("Cc1ccccc1")          # 甲苯
+        carbons = [a for a in result.skeleton.atoms if a.element == "C"]
+        labelled = [a for a in carbons if a.label]
+        self.assertEqual(len(labelled), 1, "只有甲基那个碳该写字")
+        self.assertEqual(labelled[0].label, "CH_{3}")
+
+    def test_charged_atom_keeps_its_sign(self):
+        """带电原子要在标签后带上标（铵根 NH_{3}^{+}）。"""
+        result = structure.from_smiles("C[NH3+]")
+        labels = {a.label for a in result.skeleton.atoms if a.element == "N"}
+        self.assertTrue(any("^{+}" in label for label in labels), labels)
+
+
 class WedgeRenderingTests(unittest.TestCase):
     """楔形必须真的被画出来 —— 模型里存了不等于画得出来。
 

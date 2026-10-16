@@ -32,6 +32,11 @@
   group label when switching an element" (`C` → `CH_{3}`), not a render default — the
   fallback turned every skeletal carbon into a methyl and made imported molecules look like
   piles of `CH_{3}`.
+- **Heteroatom labels were looked up per element instead of inferred from bonding.** Every
+  nitrogen came out as `NH_{2}` — so caffeine's three nitrogens (two N-methyl, one ring `=N-`)
+  were all drawn with two hydrogens. Hydrogen count is now `valence − Σ(bond order)` adjusted
+  for charge, which yields `OH`/`NH`/`NH_{2}`/bare symbols correctly (pyrrole → `NH`,
+  pyridine → `N`, caffeine → four bare `N`).
 - **A carboxylic acid's double-bonded oxygen was labelled `OH`** instead of `O`; labels now
   respect bond order.
 - **Multi-molecule scene JSON was downgraded to a single molecule** by the new unified input
