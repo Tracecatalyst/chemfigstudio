@@ -29,7 +29,7 @@ from .errors import ConfigError, RenderError
 from . import settings as settings_mod
 
 __all__ = ["main", "build_parser", "VERSION"]
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 class _CliExit(SystemExit):
