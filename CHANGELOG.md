@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-16
+
+### Changed
+
+- **`core.py` no longer knows any chemistry.** `draw_chain` used to hard-code the
+  `CH_{3}` / `H_{2}` / `OH` / `2 C-H` labels *and* the assumption that the chain ends in a
+  hydroxyl, so the "no chemistry in core" rule was only true in the docs. Labels are now
+  injected by the caller:
+  - `core.ChainStyle` gained `head_label` / `vertex_label` / `end_label` / `end_colour` /
+    `end_lone_pairs` / `note_label` / `note_head_label`; a bare `ChainStyle()` now draws an
+    unlabelled zig-zag instead of an alcohol.
+  - The condensed-formula vocabulary lives in `figures._ALCOHOL_VOCAB` +
+    `figures.chain_style()`, which also owns the `label_style` (h2/ch2) meaning.
+  - The lone-pair *interpretation* moved to `figures.draw_lone_pairs()`; core keeps the
+    neutral primitive `core.draw_dot_pairs()` (old name kept as an alias).
+  - **Byte-identical output**: all six example figures hash exactly as before.
+  - New guard: `tests/test_core.CoreKnowsNoChemistryTests` walks core's AST for non-docstring
+    strings and identifiers (word-boundary matching, so `"OH"` cannot match `draw_rich`) and
+    asserts the vocabulary really is in `figures`, so the guard cannot pass vacuously.
+
+### Fixed
+
+- **ADR-004 claimed a single raster format while the code shipped SVG and PDF** (audit contract-01). Added
+  **ADR-014** to supersede it, marked ADR-004 as replaced, and corrected
+  `ARCHITECTURE.md §1/§7.4/§11` plus the README. New guard:
+  `tests/test_export.FormatDocumentationTests` fails if current docs claim a single format
+  (ADR text and historical changelog sections are exempt, with a reverse assertion that the
+  exemption really stops at the current release).
+- **Other stale `ARCHITECTURE.md` facts**: the layer diagram and module table said "four
+  figure types" (there are seven), the module list omitted `layout`/`canvas`/`render3d`,
+  §5's `ChainStyle` field list was out of date, and §10 listed 5 of the 16 test modules.
+
+
 ## [0.4.1] - 2026-10-16
 
 ### Security

@@ -24,7 +24,7 @@ from .api import FIGURES, FigureSpec, ParamSpec, list_figures, render
 from .errors import ConfigError, RenderError
 from .figures import FigureResult
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 __all__ = [
     "__version__",

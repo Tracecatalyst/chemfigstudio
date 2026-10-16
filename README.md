@@ -175,7 +175,7 @@ byte-comparison against the previous output.
 
 - The built-in SMILES parser only understands straight-chain primary alcohols; install
   RDKit for anything else.
-- 3D needs RDKit (optional). 3D still frames are PNG only, and the 3D view is not part of
+- 3D needs RDKit (optional). 3D still frames are raster only (no SVG), and the 3D view is not part of
   `make figures` or the CSV batch path.
 - `series` rows are literature-fixed unless you pass `--include-methanol` or `--entries`.
 - The macOS app is unsigned.

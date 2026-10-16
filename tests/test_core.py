@@ -73,5 +73,121 @@ class ChainTests(unittest.TestCase):
         self.assertEqual((2 * n + 1, n - 1), (9, 3))
 
 
+class CoreKnowsNoChemistryTests(unittest.TestCase):
+    """ARCHITECTURE §6.5：core 只画几何与文本，不认识化学。
+
+    这条以前只是文档里的一句话，实际上 `draw_chain` 把 ``CH_{3}`` / ``H_{2}`` /
+    ``OH`` / ``2 C-H`` 连同"链尾一定是羟基"的判断都写死在 core 里 —— 想画一条
+    **不含氧**的链（烷烃/酸）都做不到。现在标签由 `figures.chain_style` 注入。
+    """
+
+    #: 这些字样只允许出现在 figures.py（或插件）里
+    CHEMISTRY_IN_CODE = ("CH_{3}", "CH_{2}", "H_{2}", "OH", "2 C-H", "3 C-H",
+                         "孤对电子", "羟基", "醇")
+
+    @staticmethod
+    def _code_strings(path):
+        """源文件里**非 docstring** 的字符串字面量与标识符名字。
+
+        跳过 docstring 是有意的：core 的文档需要说明"本层不认识化学"，
+        那正是这条不变量本身的说明文字。
+        """
+        import ast
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                body = getattr(node, "body", None)
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        found = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if id(node) not in docstrings:
+                    found.append(node.value)
+            elif isinstance(node, ast.Name):
+                found.append(node.id)
+            elif isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
+                found.append(node.name)
+            elif isinstance(node, ast.Attribute):
+                found.append(node.attr)
+            elif isinstance(node, ast.keyword) and node.arg:
+                found.append(node.arg)
+        return found
+
+    @staticmethod
+    def _mentions(text, term):
+        """按**词边界**找 term。
+
+        不能直接用 ``in``：``"OH"`` 会命中 ``"draw_rich"``／``"ImageDraw"``，
+        这种误报会让人干脆把守卫测试关掉 —— 那就等于没有守卫。
+        """
+        import re
+        return re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(term),
+                         text) is not None
+
+    def test_core_source_has_no_chemistry_vocabulary(self):
+        path = Path(core.__file__)
+        items = self._code_strings(path)
+        for term in self.CHEMISTRY_IN_CODE:
+            hits = [item for item in items if self._mentions(str(item), term)]
+            self.assertEqual(hits, [],
+                             "core.py 的代码里出现了化学字样 %r（%r）—— "
+                             "标签应当由调用方（figures.chain_style）注入"
+                             % (term, hits[:3]))
+
+    def test_figures_owns_the_alcohol_vocabulary(self):
+        """反过来：词汇表必须真的在 figures 里，否则上面那条会变成空检查。"""
+        from chemfigstudio import figures
+        for term in ("CH_{3}", "H_{2}", "CH_{2}", "OH", "2 C-H", "3 C-H"):
+            self.assertIn(term, figures._ALCOHOL_VOCAB.values(),
+                          "figures 的词汇表缺 %r" % term)
+
+    def test_chain_style_agrees_with_the_requested_label_style(self):
+        """`label_style` 的语义（h2 vs ch2）由 figures 解释，core 不再判断。"""
+        from chemfigstudio import figures
+        self.assertEqual(figures.chain_style(4, label_style="h2").vertex_label, "H_{2}")
+        self.assertEqual(figures.chain_style(4, label_style="ch2").vertex_label, "CH_{2}")
+        # h2 是默认：老调用点（不传 label_style）行为必须不变
+        self.assertEqual(figures.chain_style(4).vertex_label, "H_{2}")
+
+    def test_chain_style_injects_head_and_tail_labels(self):
+        from chemfigstudio import figures
+        style = figures.chain_style(3)
+        self.assertEqual(style.head_label, "CH_{3}")
+        self.assertEqual(style.end_label, "OH")
+        self.assertTrue(style.end_lone_pairs)
+        self.assertEqual(style.end_colour, core.OXYGEN_RED)
+
+    def test_notes_are_opt_in_and_only_carry_text(self):
+        from chemfigstudio import figures
+        plain = figures.chain_style(4)
+        self.assertFalse(plain.note)
+        self.assertEqual(plain.note_label, "")
+        self.assertEqual(plain.note_head_label, "")
+        noted = figures.chain_style(4, note=True)
+        self.assertTrue(noted.note)
+        self.assertEqual(noted.note_label, "2 C-H")
+        self.assertEqual(noted.note_head_label, "3 C-H")
+
+    def test_bare_chain_style_draws_geometry_without_labels(self):
+        """直接构造 core.ChainStyle() 得到的是"没有文字的锯齿链"，不该自带任何化学字样。"""
+        style = core.ChainStyle(n_carbons=3)
+        for field in ("head_label", "vertex_label", "end_label",
+                      "note_label", "note_head_label"):
+            self.assertEqual(getattr(style, field), "", "ChainStyle 默认带了标签：%s" % field)
+        image, draw = core.new_canvas(600, 300)
+        self.assertGreater(core.draw_chain(draw, 60, 150, style), 60)
+
+    def test_geometry_kwargs_pass_through(self):
+        """`**geometry` 必须透传（series 图靠它给每行不同的 dy/字号）。"""
+        from chemfigstudio import figures
+        style = figures.chain_style(2, label_size=31, sub_size=21, dy=44)
+        self.assertEqual((style.label_size, style.sub_size, style.dy), (31, 21, 44))
+
+
 if __name__ == "__main__":
     unittest.main()

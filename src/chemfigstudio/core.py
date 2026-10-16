@@ -28,7 +28,7 @@ __all__ = [
     "WHITE", "INK", "GREY", "OXYGEN_RED", "DELTA_RED",
     "CHAIN_DX", "CHAIN_DY", "CROP_MARGIN",
     "fonts", "parse_markup", "text_width", "draw_rich", "draw_rich_centred",
-    "draw_formula", "draw_lone_pairs", "draw_chain",
+    "draw_formula", "draw_chain",
     "new_canvas", "save_figure", "SaveReport", "font_report", "resolve_font",
 ]
 
@@ -265,37 +265,65 @@ def draw_formula(draw: "ImageDraw.ImageDraw", x: float, y: float, text: str,
     return x
 
 
-def draw_lone_pairs(draw: "ImageDraw.ImageDraw", ox: float, oy: float,
-                    font_size: float, colour: Tuple[int, int, int] = OXYGEN_RED) -> None:
-    """在氧原子上画两对孤对电子（每对上下叠两个点，共 4 点）。"""
+def draw_dot_pairs(draw: "ImageDraw.ImageDraw", ox: float, oy: float,
+                   font_size: float, colour: Tuple[int, int, int] = OXYGEN_RED) -> None:
+    """在一个标签旁上下各画两个小圆点（共 4 点）。
+
+    这是**纯几何图元**：它不知道这四点代表什么。化学解释在
+    :func:`figures.draw_lone_pairs`（孤对电子）。
+    """
     radius = 3
     cx = ox + 9
     for y in (oy - 19, oy - 11, oy + font_size + 5, oy + font_size + 13):
         draw.ellipse([cx - radius, y - radius, cx + radius, y + radius], fill=colour)
 
 
+#: 旧名（向后兼容）：语义是化学的，所以对外只承诺 :func:`draw_dot_pairs`
+draw_lone_pairs = draw_dot_pairs
+
+
 # --------------------------------------------------------------------- 分子骨架
 
 @dataclass
 class ChainStyle:
-    """一条示性式碳链的绘制参数。"""
+    """一条锯齿链的绘制参数。
+
+    **本层不认识化学**（ARCHITECTURE §6.5）：所有要写出来的文字都由调用方给 ——
+    `figures.py` 通过 :func:`figures.chain_style` 填入示性式的标签（``CH_{3}`` /
+    ``H_{2}`` / ``OH`` …）。这里的默认值是中性占位，直接构造 ``ChainStyle()``
+    得到的是"没有文字的锯齿链"，而不是某个分子。
+    """
 
     n_carbons: int = 4
-    label_style: str = "h2"          # "h2" = 转角写 H2（课本骨架式）；"ch2" = 写 CH2
     label_size: int = 27
     sub_size: int = 19
     dx: int = CHAIN_DX
     dy: int = CHAIN_DY
     bond_width: int = BOND_WIDTH
     bond_colour: Tuple[int, int, int] = INK
-    note: bool = False               # True 时在每个转角标出 "2 C-H"，在 CH3 标 "3 C-H"
+    note: bool = False               # True 时在转角与链首各标一条 note_label
     note_size: int = 13
     note_colour: Tuple[int, int, int] = GREY
+    # ---- 由调用方提供的文字（core 不解释它们的含义）----
+    head_label: str = ""             # 链首左上方
+    vertex_label: str = ""           # 每个转角
+    end_label: str = ""              # 链尾
+    end_colour: Optional[Tuple[int, int, int]] = None   # None = 与键同色
+    end_lone_pairs: bool = False     # 在 end_label 旁画点对（几何图元）
+    note_label: str = ""             # 转角旁的注记文字
+    note_head_label: str = ""        # 链首旁的注记文字
+    #: 兼容旧参数：``"ch2"`` 历史上代表"转角写 CH2"，现在只被 figures 解释
+    label_style: str = "h2"
 
 
 def draw_chain(draw: "ImageDraw.ImageDraw", x0: float, ymid: float,
                style: Optional[ChainStyle] = None) -> float:
-    """在 ``(x0, ymid)`` 起画 ``CH3-(CH2)n-2-OH``，返回 ``OH`` 之后的 x。"""
+    """画一条 ``n`` 个顶点的锯齿链，并把调用方给的文字摆上去。
+
+    返回链尾标签之后的 x（没有尾标签时返回链尾 x）。画什么字由
+    :class:`ChainStyle` 的 ``head_label`` / ``vertex_label`` / ``end_label`` 决定 ——
+    本函数不认识"醇""羟基"这类概念（ARCHITECTURE §6.5）。
+    """
     st = style or ChainStyle()
     f_lab = fonts(st.label_size, True)
     sf_lab = fonts(st.sub_size)
@@ -307,37 +335,43 @@ def draw_chain(draw: "ImageDraw.ImageDraw", x0: float, ymid: float,
     for a, b in zip(vertices, vertices[1:]):
         draw.line([a, b], fill=st.bond_colour, width=st.bond_width)
 
-    # CH3 标在链首左上方
-    w_ch3 = (draw.textlength("CH", font=f_lab) + draw.textlength("3", font=sf_lab))
-    draw_rich(draw, vertices[0][0] - w_ch3 - 16, vertices[0][1] - f_lab.size * 0.55,
-              "CH_{3}", f_lab, sf_lab, fill=st.bond_colour)
+    # 链首标签（文字由调用方给）
+    w_head = 0.0
+    if st.head_label:
+        w_head = text_width(draw, st.head_label, f_lab, sf_lab)
+        draw_rich(draw, vertices[0][0] - w_head - 16, vertices[0][1] - f_lab.size * 0.55,
+                  st.head_label, f_lab, sf_lab, fill=st.bond_colour)
 
-    # 中间碳：转角标注
+    # 转角标签（每个中间顶点一个）
     for i in range(1, n):
         x, y = vertices[i]
         above = y < ymid
         ty = y - f_lab.size - 14 if above else y + 16
-        label = "CH_{2}" if st.label_style == "ch2" else "H_{2}"
-        draw_rich_centred(draw, ty, label, f_lab, sf_lab, fill=st.bond_colour, cx=x)
-        if st.note:
+        if st.vertex_label:
+            draw_rich_centred(draw, ty, st.vertex_label, f_lab, sf_lab,
+                              fill=st.bond_colour, cx=x)
+        if st.note and st.note_label:
             note_y = (ty - f_note.size - 4) if above else (ty + sf_lab.size + 8)
-            draw_rich_centred(draw, note_y, "2 C-H", f_note, fonts(st.note_size - 4),
+            draw_rich_centred(draw, note_y, st.note_label, f_note, fonts(st.note_size - 4),
                               fill=st.note_colour, cx=x)
 
-    # OH：键直接连到 O 上，O 为红色，带孤对电子
+    # 链尾：先把键连到标签位置，再写文字（颜色可由调用方指定）
     tail = (x0 + n * st.dx, ymid + (-st.dy if n % 2 else st.dy))
     ox, oy = tail[0] + 16, tail[1] - f_lab.size * 0.55
     draw.line([vertices[-1], (ox - 5, oy + f_lab.size * 0.36)],
               fill=st.bond_colour, width=st.bond_width)
-    draw_rich(draw, ox, oy, "OH", f_lab, sf_lab, fill=OXYGEN_RED)
-    draw_lone_pairs(draw, ox, oy, f_lab.size)
+    if st.end_label:
+        draw_rich(draw, ox, oy, st.end_label, f_lab, sf_lab,
+                  fill=st.end_colour or st.bond_colour)
+        if st.end_lone_pairs:
+            draw_lone_pairs(draw, ox, oy, f_lab.size)
 
-    if st.note:
-        draw_rich_centred(draw, vertices[0][1] + f_lab.size + 8, "3 C-H",
+    if st.note and st.note_label:
+        draw_rich_centred(draw, vertices[0][1] + f_lab.size + 8, st.note_head_label,
                           f_note, fonts(st.note_size - 4), fill=st.note_colour,
-                          cx=vertices[0][0] - w_ch3 / 2 - 16)
+                          cx=vertices[0][0] - w_head / 2 - 16)
 
-    return ox + draw.textlength("OH", font=f_lab)
+    return ox + (draw.textlength(st.end_label, font=f_lab) if st.end_label else 0.0)
 
 
 # ------------------------------------------------------------------ 画布与输出

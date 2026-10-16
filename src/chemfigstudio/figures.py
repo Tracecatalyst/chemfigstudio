@@ -25,7 +25,51 @@ from .core import (
 __all__ = [
     "FigureResult", "ALCOHOL_SERIES", "COMBUSTION_ENTHALPY_KJ_PER_MOL",
     "alcohol_figure", "series_figure", "reaction_figure", "chcount_figure",
+    "chain_style", "draw_lone_pairs",
 ]
+
+
+# ------------------------------------------------------- 示性式的"化学词汇表"
+#
+# 这些字样**只能出现在本层**（ARCHITECTURE §6.5）：core.py 只负责把给定的文字摆到
+# 几何位置上，不认识"醇""羟基"。所以示性式的所有标签在这里组装。
+_ALCOHOL_VOCAB = {
+    "head": "CH_{3}",                    # 链首：甲基
+    "vertex_h2": "H_{2}",                # 转角写 H2（课本骨架式）
+    "vertex_ch2": "CH_{2}",              # 转角写 CH2（示性式写法）
+    "end": "OH",                         # 羟基
+    "note_vertex": "2 C-H",              # 转角碳上的 C-H 计数
+    "note_head": "3 C-H",                # 甲基碳上的 C-H 计数
+}
+
+
+def chain_style(n_carbons: int, *, label_style: str = "h2", note: bool = False,
+                note_size: int = 13, **geometry) -> ChainStyle:
+    """组装一条**醇**示性式锯齿链的样式（化学词汇都在这里，core 不认识它们）。
+
+    ``**geometry`` 透传给 :class:`core.ChainStyle`（``dx`` / ``dy`` / ``label_size`` …）。
+    """
+    vertex = _ALCOHOL_VOCAB["vertex_ch2"] if label_style == "ch2" \
+        else _ALCOHOL_VOCAB["vertex_h2"]
+    return ChainStyle(n_carbons=n_carbons, label_style=label_style, note=note,
+                      note_size=note_size,
+                      head_label=_ALCOHOL_VOCAB["head"],
+                      vertex_label=vertex,
+                      end_label=_ALCOHOL_VOCAB["end"],
+                      end_colour=OXYGEN_RED,          # 氧画红（颜色常量仍在 core）
+                      end_lone_pairs=True,
+                      note_label=_ALCOHOL_VOCAB["note_vertex"] if note else "",
+                      note_head_label=_ALCOHOL_VOCAB["note_head"] if note else "",
+                      **geometry)
+
+
+def draw_lone_pairs(draw, ox: float, oy: float, font_size: float,
+                    colour=OXYGEN_RED) -> None:
+    """在原子标签旁画两对点，并把它解释成**孤对电子**（化学含义在本层）。
+
+    几何由 :func:`core.draw_dot_pairs` 提供 —— 那也是 core 里不带化学名字的图元。
+    """
+    core.draw_dot_pairs(draw, ox, oy, font_size, colour)
 
 
 @dataclass
@@ -114,7 +158,7 @@ def alcohol_figure(out, n_carbons: int = 4, name: Optional[str] = None,
         core.draw_rich_centred(draw, banner.title_y, title,
                                core.fonts(banner.title_size, banner.title_bold),
                                core.fonts(banner.title_sub), cx=560)
-    core.draw_chain(draw, 130, 200, ChainStyle(n_carbons=n, label_style=label_style))
+    core.draw_chain(draw, 130, 200, chain_style(n, label_style=label_style))
     if delta_h:
         core.draw_rich_centred(draw, 330, "ΔH_{c} = %s kJ/g" % delta_h,
                                core.fonts(27, True), core.fonts(19), cx=560, fill=DELTA_RED)
@@ -171,8 +215,8 @@ def series_figure(out, entries: Optional[Sequence[Sequence[object]]] = None,
         ym = int(grid.row_y(i))
         centres.append(ym)
         core.draw_chain(draw, structure.x, ym,
-                        ChainStyle(n_carbons=n, label_size=structure.font_size,
-                                   sub_size=structure.sub_size, dy=chain_dy))
+                        chain_style(n, label_size=structure.font_size,
+                                    sub_size=structure.sub_size, dy=chain_dy))
         core.draw_rich(draw, name_slot.x, ym + name_slot.dy, str(nm),
                        core.fonts(name_slot.font_size, name_slot.bold),
                        core.fonts(name_slot.sub_size))
@@ -225,7 +269,7 @@ def reaction_figure(out, n_carbons: int = 4,
                    core.fonts(banner.title_sub))
 
     ym = 210
-    x_after_oh = core.draw_chain(draw, 90, ym, ChainStyle(n_carbons=n))
+    x_after_oh = core.draw_chain(draw, 90, ym, chain_style(n))
     draw.text((x_after_oh + 44, ym - 58), "+", font=core.fonts(34, True), fill=INK)
 
     x = x_after_oh + 104
@@ -294,7 +338,7 @@ def chcount_figure(out, n_carbons: int = 4,
                    % ("butan-1-ol" if n == 4 else "C%dH%dOH" % (n, 2 * n + 1)),
                    core.fonts(banner.title_size, banner.title_bold),
                    core.fonts(banner.title_sub))
-    core.draw_chain(draw, 120, 250, ChainStyle(n_carbons=n, note=True, note_size=19))
+    core.draw_chain(draw, 120, 250, chain_style(n, note=True, note_size=19))
     core.draw_rich(draw, 120, 430, summary, core.fonts(26, True), core.fonts(18))
     if note:
         core.draw_rich(draw, 120, 478, note, core.fonts(19), core.fonts(13), fill=GREY)
@@ -448,7 +492,7 @@ def esterification_figure(out, acid_carbons: int = 2, alcohol_carbons: int = 1,
     draw.text((360, ym - 6), "+", font=core.fonts(34, True), fill=INK)
 
     # 醇：用与其它图同一套锯齿链（含红色氧与孤对电子）
-    core.draw_chain(draw, 430, ym + 20, ChainStyle(n_carbons=alcohol, label_style="h2"))
+    core.draw_chain(draw, 430, ym + 20, chain_style(alcohol, label_style="h2"))
     draw.text((430, ym + 120), _ALKANOL_NAMES[alcohol], font=core.fonts(19), fill=GREY)
 
     # 箭头 + 条件

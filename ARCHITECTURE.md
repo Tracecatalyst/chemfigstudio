@@ -7,8 +7,9 @@
 
 ## 1. 一句话定位
 
-把"参数（碳数 / SMILES / ΔH）"变成"课本风格的 PNG 分子图"，
-过程中不联网、不依赖化学渲染服务，唯一的第三方依赖是 Pillow。
+把"参数（碳数 / SMILES / ΔH）"变成"课本风格的分子图"，输出 **PNG / SVG / PDF**
+（SVG 是真矢量文本，见 ADR-014）；过程不联网、不依赖化学渲染服务，
+唯一的第三方依赖是 Pillow（RDKit 可选，见 ADR-006/ADR-012）。
 
 ---
 
@@ -30,22 +31,34 @@
                        └───────────────┬───────────────┘
                                        ▼
                        ┌───────────────────────────────┐
-                       │  figures.py                   │  四种图的构图逻辑
+                       │  figures.py                   │  七种图的构图逻辑
                        │  alcohol / series / reaction  │  （画什么、画在哪）
-                       │  / chcount                    │
+                       │  / chcount / enthalpy /       │  + 示性式的化学词汇表
+                       │  esterification / skeleton    │  （chain_style）
                        └───────────────┬───────────────┘
                                        ▼
                        ┌───────────────────────────────┐
                        │  core.py                      │  图元 + 文本 + 画布
-                       │  字体 / 上下标排版 / 键 / 孤对 │  （怎么画）
-                       │  电子 / 自动裁边 / 贴边检测    │
+                       │  字体 / 上下标排版 / 锯齿链 /  │  （怎么画；不认识化学）
+                       │  自动裁边 / 贴边检测           │
                        └───────────────┬───────────────┘
                                        ▼
-                              Pillow → PNG 文件
+                    canvas.Surface（双后端）→ PNG / SVG / PDF 文件
 ```
 
 **依赖方向是单向的**（`gui/cli → api → figures → core`）。
 反向 import 会立刻形成环，禁止。
+
+**3D 是一条旁路**（ADR-012），不接入上面的 2D 链：
+
+```
+cli.py / gui/server.py ──> render3d.py ──> RDKit ──> molblock(文本)
+                                                         │
+   gui/static/viewer3d.js + vendor/3Dmol-min.js <────────┘  （浏览器渲染、导出 PNG）
+```
+
+所以：`core.py` / `canvas.py` / `figures.py` **一行都没为 3D 改动**；
+3D 既不在 `FIGURES` 注册表里（不是"图类型"），也不进 `make figures` 与 CSV 批量。
 
 ---
 
@@ -53,11 +66,13 @@
 
 | 文件 | 职责 | 依赖 | 明确**不做**的事 |
 |---|---|---|---|
-| `core.py` | 字体解析与缓存、`_{}`/`^{}` 标记解析与排版、画键/画孤对、画布、自动裁边、贴边告警 | Pillow | 不认识"醇"这种概念；不打印；不读命令行 |
-| `figures.py` | 四种图的构图（标题、坐标、行距、ΔH 文案、方程式配平） | `core` | 不做参数校验；不 exit；不写日志 |
+| `core.py` | 字体解析与缓存、`_{}`/`^{}` 标记解析与排版、画键、画锯齿链、画点对、画布、自动裁边、贴边告警 | Pillow | **不认识任何化学概念**（标签由调用方注入，见 §6.5）；不打印；不读命令行 |
+| `figures.py` | **七种**图的构图（标题、坐标、行距、ΔH 文案、方程式配平）+ 示性式化学词汇表 `chain_style()` | `core`、`layout` | 不做参数校验；不 exit；不写日志 |
 | `api.py` | 参数表 `ParamSpec`、图注册表 `FIGURES`、校验 + 类型转换、输出路径解析、`render()` | `figures`、`smiles` | 不画图；不碰 HTTP |
 | `smiles.py` | SMILES / 名称 → 碳数（RDKit 可选，内置直链解析兜底） | `errors` | 不画图 |
 | `errors.py` | `RenderError`（用户可纠正）/ `ConfigError`（环境问题） | 无 | —— |
+| `render3d.py` | SMILES → **3D 构象**（molblock）。薄封装 RDKit（ETKDGv3 + MMFF94），RDKit 缺失时抛 `ConfigError`（附安装命令） | `smiles`、`errors` | 不画图、不写文件、不打印、**不认识 2D 画布** |
+| `gui/static/viewer3d.*` + `vendor/3Dmol-min.js` | 3D 查看器页面（浏览器侧渲染、旋转、导出 PNG）。3Dmol.js **自托管**，无 CDN | 浏览器（3Dmol.js） | 不做 chemistry 计算（几何全来自 `/api/render3d`） |
 | `cli.py` | argparse、参数映射、结果打印（含 `--json`）、`doctor`、`gui`/`app` 子命令 | `api`、`core` | 不直接调 `figures`/`core` 画图 |
 | `gui/server.py` | HTTP 路由、静态文件、JSON API、路径安全、端口回退、父进程看门狗 | `api` | 不重新实现业务逻辑（只转发到 `api.render`） |
 | `native/macos/ChemFigStudio.swift` | **macOS 外壳**：挑空闲端口、拉起服务、WKWebView 显示页面、退出时杀子进程 | 无（只看 HTTP） | **不许写业务逻辑**（有测试断言源码里不出现 `figure`/`kJ/g` 等字样） |
@@ -96,8 +111,10 @@
 ## 5. 核心数据结构
 
 ```python
-# core.py
-ChainStyle(n_carbons, label_style, label_size, sub_size, dx, dy, bond_width, note, …)
+# core.py —— 只有几何与"要写什么字"，字由调用方给
+ChainStyle(n_carbons, label_size, sub_size, dx, dy, bond_width,
+           head_label, vertex_label, end_label, end_colour, end_lone_pairs,
+           note, note_label, note_head_label, …)
 SaveReport(path, size, warnings, cropped)          # .as_dict()
 
 # figures.py
@@ -128,7 +145,11 @@ SmilesInfo(smiles, n_carbons, name, formula, mw, source, notes)
    说明 `#788291`、ΔH `#BE123C`、背景纯白。
 4. **先大画布后裁边**：所有图都在超大画布上画，再由 `save_figure` 裁到墨迹 + 26 px。
    画布尺寸给小了会被切 —— 靠 `warnings` 发现，不要靠肉眼。
-5. **`core.py` 不许出现化学语义**（"醇""燃烧"这类词），那些属于 `figures.py`。
+5. **`core.py` 不许出现化学语义**（"醇""燃烧"这类词，以及 `CH_{3}`/`OH` 这类字样），
+   那些属于 `figures.py`。示性式的标签通过 `figures.chain_style()` 注入
+   `core.ChainStyle` 的 `head_label`/`vertex_label`/`end_label` 字段。
+   **有测试盯着**：`tests/test_core.CoreKnowsNoChemistryTests` 用 AST 扫 core 源码里
+   非 docstring 的字符串与标识符名（按词边界匹配，避免 `"OH"` 命中 `draw_rich`）。
 6. **GUI 不许有业务逻辑**，只转发 `api`；前端参数表单必须由 `/api/figures` 生成。
 7. **公开 API 只增不改**：`api.render` / `figures.*_figure` / `core.*` 的签名
    要保持向后兼容（旧 CLI 命令是硬约束，见 `tests/test_cli.py::BackwardCompatibilityTests`）。
@@ -163,11 +184,13 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 `core.FONT_CANDIDATES` / 环境变量 `CHEMFIG_FONT`、`CHEMFIG_FONT_BOLD`。
 `make doctor` 会打印实际解析到的字体路径。
 
-### 7.4 想要矢量输出（SVG）
+### 7.4 矢量输出（SVG）—— 已实现，加图元时要顾两个后端
 
-目前是 Pillow 位图。加 SVG 属于**换后端**：需要给 `core` 抽一层
-"绘制接口"（现在直接调 `ImageDraw`），再实现一个 SVG 后端。
-建议做法：先写 `docs/DECISIONS.md` 的一条 ADR，再动代码。
+`canvas.Surface` 就是那层"绘制接口"：`svg=True` 时同一份绘制指令同时产出
+位图与 SVG 元素（文字是真 `<text>`）。**新增图元方法时必须在两个后端都实现**，
+否则 SVG 会静默缺元素；`tests/test_export.py` 覆盖三种格式。
+（决策过程见 ADR-014 —— 它取代了早期那条"暂不支持矢量"的 ADR-004；
+历史措辞只保留在 `docs/DECISIONS.md` 里，本文件不再复述。）
 
 ---
 
@@ -178,30 +201,25 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/` | 返回 `static/index.html` |
-| GET | `/viewer3d` | 3D 查看器页面（3Dmol.js ~0.5 MB 按需加载） |
 | GET | `/static/<file>` | 静态资源（限制在 `gui/static/` 内，**允许 `vendor/` 子目录**） |
-| GET | `/preview/<file>` | 编辑器的**不落盘预览**（在配置目录里，不写用户输出目录） |
 | GET | `/out/<file>` | 预览已生成的图（限制在 `--outdir` 内） |
+| GET | `/viewer3d` | 3D 查看器页面（独立页；3Dmol.js ~0.5 MB 只在需要时加载） |
 | GET | `/api/health` | `{"ok":true,"version":…,"outdir":…,"figures":[…kind]}` |
 | GET | `/api/figures` | 参数表：`{"ok":true,"figures":[FigureSpec.as_dict()…],"outdir":…}` |
+| POST | `/api/render` | 见下 |
+| POST | `/api/reveal` | `{"file":"x.png"}` → 在 Finder 中显示（macOS） |
+| POST | `/api/render3d` | `{"smiles":"CCO"}` → **3D 几何数据**（molblock + 分子式/能量/方法）。缺 RDKit → **503**（不是 400） |
+| GET | `/preview/<file>` | 编辑器的**不落盘预览**（在配置目录里，不写用户输出目录） |
 | GET | `/api/documents` | 草稿列表（崩溃/关窗后可恢复） |
 | GET | `/api/documents/<id>` | 读取某份草稿 |
-| GET | `/api/plugins` | 已加载插件与错误 |
+| GET | `/api/plugins` | 已加载插件与错误（`chemfigstudio plugins` 的 HTTP 版） |
 | GET | `/api/i18n/<lang>` | 文案目录 catalog（前端 `t()` 用它；`auto` = 当前语言） |
-| POST | `/api/render` | 见下 |
-| POST | `/api/render3d` | `{"smiles":"CCO"}` → **3D 几何数据**（molblock + 分子式/能量/方法）。缺 RDKit → **503**（不是 400） |
-| POST | `/api/preview` | 画布预览（只落配置目录） |
-| POST | `/api/export` | 导出 PNG/SVG/PDF；**写盘根受 `allowedWriteDirs` 限制** |
+| POST | `/api/preview` | 画布预览（同上，只落配置目录） |
+| POST | `/api/export` | 导出 PNG/SVG/PDF；**写盘根受 `allowedWriteDirs` 限制**（ADR-013） |
 | POST | `/api/batch` | CSV → 多张图；`dryRun` 只回报将写哪些文件（供覆盖确认） |
 | POST | `/api/session` | 多标签会话：新建/关闭/切换/撤销/重做/应用参数 |
 | POST | `/api/documents` | 保存草稿 |
-| POST | `/api/reveal` | `{"file":"x.png"}` → 在 Finder 中显示（macOS） |
 | PUT | `/api/settings` | 更新设置（与 POST 同处理） |
-
-**请求边界（v0.4.1）**：`/api/export` 与 `/api/batch` 的 `dir` 只能落在「输出目录」或
-设置里的 `allowedWriteDirs` 内，越界返回 **403**；所有改写请求还要通过同源 `Origin`、
-回环 `Host`（挡 DNS rebinding）与 `application/json` 三道校验。非浏览器客户端
-（curl/脚本）不带 `Origin`，照常放行。
 
 `POST /api/render` 请求：
 
@@ -219,6 +237,8 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 
 失败：**400** + `{"ok":false,"error":"<用户可读原因>"}`（参数非法、SMILES 不是醇、文件名越界），
 **500** + 同样结构（内部异常，stderr 里带 traceback，用 `--verbose` 看）。
+
+**写盘边界**（ADR-013）：`/api/export` 与 `/api/batch` 的 `dir` 只能落在「输出目录」或设置里的 `allowedWriteDirs` 内，越界返回 **403** —— 本地服务收的是浏览器请求，不能让它把文件写到任意位置。所有改写请求还必须通过同源 `Origin` / 回环 `Host` / `application/json` 三道校验。
 
 **安全约束**：所有用户提供的文件名都过 `_safe_child()`（拒绝 `/`、`\`、`..`、隐藏文件名，
 并 `resolve()` 后校验仍在 outdir 内）。有对应测试
@@ -246,10 +266,18 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 
 | 文件 | 覆盖点 |
 |---|---|
-| `test_core.py` | 标记解析、字体缓存、裁边尺寸、**贴边告警**、链长推进 |
-| `test_figures.py` | 四种图都能出图 + PNG magic + 标准参数下**零告警**；反应方程式奇偶碳配平 |
+| `test_core.py` | 标记解析、字体缓存、裁边尺寸、**贴边告警**、链长推进、**core 无化学语义（AST 守卫）** |
+| `test_figures.py` | 七种图都能出图 + PNG magic + 标准参数下**零告警**；反应方程式奇偶碳配平；示性式词汇表 |
+| `test_layout.py` | 声明式布局（`Slot`/`RowLayout`/`BannerLayout`）与 `BANNERS` 登记 |
+| `test_skeleton.py` | 骨架模型/吸附/键级/多分子/元素切换 |
+| `test_export.py` | PNG/SVG/PDF 三格式、覆盖确认、**文档不得声称只支持 PNG** |
+| `test_batch.py` | CSV 解析、批量出图、`--watch`、RDKit 路径发现 |
+| `test_render3d.py` | 3D 构象契约（mock RDKit）与 molblock 解析 |
+| `test_settings.py` | 设置读写/校验/损坏恢复 |
+| `test_document.py` / `test_history.py` / `test_plugins.py` / `test_i18n.py` | 草稿、撤销重做、插件、双语 key 集合一致 |
 | `test_cli.py` | **旧命令兼容**（硬约束）、`--json`、`--outdir`、`doctor`、错误码 2、SMILES 校验、名称解析 |
 | `test_gui.py` | **真起 HTTP 服务**：health / figures / render 往返 / 预览取图 / 400 / 404 / 路径穿越拦截 |
+| `test_native_app.py` | 原生外壳：Swift 源码自检（含"不许有业务逻辑"）、构建脚本语法、已构建产物的 plist/内嵌源码/体积、**父进程看门狗**（父死子退）、`--parent-pid`/`--quiet` 存在 |
 
 原则：**改任何行为都先加/改测试**；GUI 测试不依赖浏览器，可在无界面环境跑。
 
@@ -257,7 +285,8 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
 
 ## 11. 限制与技术债
 
-* 只出 PNG（`docs/DECISIONS.md` ADR-004 说明为什么暂时不做 SVG）。
+* 2D 输出 PNG / SVG / PDF 三种格式（ADR-014；SVG 是真矢量文本）。
+  3D 静帧只有 PNG（ADR-012）。
 * 原生外壳**只有 macOS 版**（Windows/Linux 用浏览器版）；目前只编译当前架构
   （arm64），要通用二进制得加 `-target x86_64-apple-macos11` 再 `lipo`。
 * 外壳未做代码签名与公证，拷给别人时首次打开需右键 →「打开」。
@@ -265,4 +294,11 @@ GUI 会自动出现这个控件（表单是动态生成的），CLI 需要的话
   不是真正的布局引擎；要更灵活的排版需要引入布局层。
 * `series_figure` 的行重叠自检依赖"全白行"启发式，不是精确的包围盒相交判断。
 * 内置 SMILES 解析只支持直链伯醇（`C…CO`）；支链/环需要 RDKit。
-* 没有类型检查（mypy）与格式化（black）配置 —— 见项目 TODO。
+* **3D 静帧只有 PNG**：3Dmol 走 `canvas.toDataURL()`，没有矢量输出（与 2D 的 SVG 双后端无关）。
+* **3D 不进批量/示例图**：它不是 `FIGURES` 里的图类型，`make figures` 与 CSV 批量都不涉及它。
+* **内嵌 rdkit/numpy 是编译扩展**：与 Python 版本 + CPU 架构绑定。内嵌版 app ≈ 113 MB；
+  通用二进制在另一种 CPU 的 Mac 上 3D 不可用（2D 出图不受影响）。
+* 3D 的自动测试只覆盖到"服务端回几何数据"这一层；浏览器侧（WebGL）靠手工端到端验证，
+  因为 CI 里没有 GPU/浏览器（见 `docs/HANDOVER.md` 的验证小节）。
+
+* 没有类型检查（mypy）与格式化（black）配置 —— 见 `AGENTS.md` 的 TODO。

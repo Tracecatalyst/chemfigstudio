@@ -1,9 +1,9 @@
-"""导出测试：PNG / SVG / PDF 三格式（契约–11）。
+"""导出测试：PNG / SVG / PDF 三格式（契约验收 8–11）。
 
 要点：
-* SVG 必须是**真文本**，且与 PNG 取景一致
-* PDF 页面尺寸与 PNG 长宽误差 < 1%
-* DPI 影响实际像素：300 dpi 时输出长边 ≥ 2400 px（见 rev3 修订）
+* SVG 必须是**真文本**（验收 9），且与 PNG 取景一致（验收 11）
+* PDF 页面尺寸与 PNG 长宽误差 < 1%（验收 10）
+* DPI 影响实际像素（验收 8）：300 dpi 时输出长边 ≥ 2400 px（见 rev3 修订）
 * 透明背景：四角 alpha = 0
 """
 
@@ -76,7 +76,7 @@ class ExportFormatTests(unittest.TestCase):
         self.assertIn("font-family", svg)
 
     def test_svg_viewbox_matches_png_size(self):
-        """SVG 与 PNG 取景一致（误差 < 1%）。"""
+        """验收 11：SVG 与 PNG 取景一致（误差 < 1%）。"""
         result = self.render()
         svg = Path(result.outputs["svg"]).read_text(encoding="utf-8")
         view_box = [float(v) for v in re.search(r'viewBox="([^"]+)"', svg).group(1).split()]
@@ -86,7 +86,7 @@ class ExportFormatTests(unittest.TestCase):
 
     # ------------------------------------------------------------------ PDF
     def test_pdf_page_size_matches_png(self):
-        """PDF 页面与 PNG 长宽误差 < 1%（PDF 单位是点 = 1/72 inch）。"""
+        """验收 10：PDF 页面与 PNG 长宽误差 < 1%（PDF 单位是点 = 1/72 inch）。"""
         result = self.render(dpi=300)
         box = pdf_mediabox(Path(result.outputs["pdf"]))
         self.assertIsNotNone(box, "找不到 MediaBox")
@@ -98,7 +98,7 @@ class ExportFormatTests(unittest.TestCase):
 
     # ---------------------------------------------------------------- DPI
     def test_dpi_controls_pixel_size(self):
-        """（rev3）：300 dpi 时输出长边 ≥ 2400 px；150 dpi 明显更小。"""
+        """验收 8（rev3）：300 dpi 时输出长边 ≥ 2400 px；150 dpi 明显更小。"""
         # 用公开入口（内部自适应重绘只在这里生效）
         big = api.render("alcohol", out=str(self.tmp / "big.png"),
                          params={"smiles": "CCCCO"}, formats=("png",), dpi=300)
@@ -155,6 +155,61 @@ class FigureMatrixTests(unittest.TestCase):
                 self.assertEqual(result.warnings, [], "%s 不该有告警" % kind)
 
 
+
+class FormatDocumentationTests(unittest.TestCase):
+    """文档不能说"只出 PNG"：SVG/PDF 早就实现了（ADR-014 取代了 ADR-004）。
+
+    踩过：`ARCHITECTURE.md §11`、§7.4、ADR-004、README FAQ 四处同时声称只做 PNG，
+    而代码三种格式都能出 —— 读者会以为矢量输出是个"待办"，而不是已有功能。
+    """
+
+    ROOT = Path(__file__).resolve().parents[1]
+    #: 整份文件豁免：ADR 原文是历史记录，措辞必须保持原样
+    HISTORY_FILES = ("docs/DECISIONS.md",)
+    #: 只豁免"历史段"的文件：CHANGELOG 的旧发布说明要留档，
+    #: 但 Unreleased 段落不该再引用旧说法（引用式地"说明它已被取代"会让守卫误报，
+    #: 而误报最终会让人把它关掉 —— 直接指向 ADR-014 即可）。
+    PARTIAL_FILES = ("CHANGELOG.md",)
+
+    PATTERNS = ("只出 PNG", "只输出 PNG", "只做 PNG", "PNG only")
+
+    @classmethod
+    def _scanned_text(cls, path, rel):
+        """返回本文档里"现役"的部分（CHANGELOG 只取第一个发布段之前的内容）。"""
+        text = path.read_text(encoding="utf-8")
+        if rel in cls.PARTIAL_FILES:
+            marker = "## [0.4.0]"
+            if marker in text:
+                return text[:text.index(marker)]
+        return text
+
+    def test_docs_do_not_claim_png_only(self):
+        checked = 0
+        for path in sorted(self.ROOT.glob("*.md")) + sorted((self.ROOT / "docs").glob("*.md")):
+            rel = path.relative_to(self.ROOT).as_posix()
+            if rel in self.HISTORY_FILES:
+                continue                      # ADR 原文保留历史措辞
+            text = self._scanned_text(path, rel)
+            checked += 1
+            for pattern in self.PATTERNS:
+                self.assertNotIn(pattern, text,
+                                 "%s 的现役部分仍说 %r —— 现在 PNG/SVG/PDF 都支持（ADR-014）"
+                                 % (rel, pattern))
+        self.assertGreater(checked, 0, "没扫到任何文档，断言等于空转")
+
+    def test_changelog_exemption_stops_at_the_current_release(self):
+        """反向确认：CHANGELOG 只豁免历史段，本次发布段仍受约束。"""
+        path = self.ROOT / "CHANGELOG.md"
+        full = path.read_text(encoding="utf-8")
+        scanned = self._scanned_text(path, "CHANGELOG.md")
+        self.assertLess(len(scanned), len(full), "CHANGELOG 的历史段没有被排除")
+        self.assertIn("## [Unreleased]", scanned)
+
+    def test_formats_are_actually_three(self):
+        from chemfigstudio import settings
+        self.assertEqual(tuple(settings.VALID_FORMATS), ("png", "svg", "pdf"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -200,3 +255,33 @@ class PreviewSizeTests(unittest.TestCase):
         before = {p.name for p in output.iterdir()}
         api.preview("series", {})
         self.assertEqual({p.name for p in output.iterdir()}, before)
+
+class FormatDocumentationTests(unittest.TestCase):
+    """文档不能说"只出 PNG"：SVG/PDF 早就实现了（ADR-014 取代了 ADR-004）。
+
+    踩过：`ARCHITECTURE.md §11`、§7.4、ADR-004、README FAQ 四处同时声称只做 PNG，
+    而代码三种格式都能出 —— 读者会以为矢量输出是个"待办"，而不是已有功能。
+    """
+
+    ROOT = Path(__file__).resolve().parents[1]
+    #: 允许出现"只出 PNG"的地方：ADR-004 原文与取代它的 ADR-014（历史记录）
+    HISTORY_FILES = ("docs/DECISIONS.md",)
+
+    def test_docs_do_not_claim_png_only(self):
+        patterns = ("只出 PNG", "只输出 PNG", "只做 PNG", "PNG only")
+        checked = 0
+        for path in sorted(self.ROOT.glob("*.md")) + sorted((self.ROOT / "docs").glob("*.md")):
+            rel = path.relative_to(self.ROOT).as_posix()
+            if rel in self.HISTORY_FILES:
+                continue                      # ADR 原文保留历史措辞
+            text = path.read_text(encoding="utf-8")
+            checked += 1
+            for pattern in patterns:
+                self.assertNotIn(pattern, text,
+                                 "%s 里仍说 %r —— 现在 PNG/SVG/PDF 都支持（ADR-014）"
+                                 % (rel, pattern))
+        self.assertGreater(checked, 0, "没扫到任何文档，断言等于空转")
+
+    def test_formats_are_actually_three(self):
+        from chemfigstudio import settings
+        self.assertEqual(tuple(settings.VALID_FORMATS), ("png", "svg", "pdf"))
