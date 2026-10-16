@@ -17,7 +17,7 @@ help:
 	@echo "make figures   - 用 CLI 生成 4 张示例图到 $(OUT)/"
 	@echo "make gui       - 启动本地网页 GUI（默认 http://127.0.0.1:8765）"
 	@echo "make app       - 打开 macOS 原生应用（首次会自动编译）"
-	@echo "make bundle    - 编译 dist/ChemFigStudio.app（内嵌 Pillow，约 13 MB）"
+	@echo "make bundle    - 编译 dist/ChemFigStudio.app（内嵌 Pillow + RDKit/numpy，约 113 MB；有 RDKit 时）"
 	@echo "make bundle-lite - 同上但不内嵌 Pillow（约 400 KB，目标机需自备 Pillow）"
 	@echo "make bundle-universal - 通用二进制（arm64 + x86_64，lipo 合并）"
 	@echo "make lint      - 语法编译检查（compileall）"

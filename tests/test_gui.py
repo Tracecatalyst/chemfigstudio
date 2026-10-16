@@ -14,7 +14,9 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
+from chemfigstudio import render3d as render3d_mod
 from chemfigstudio import settings as settings_mod
 from chemfigstudio.gui import server as gui_server
 
@@ -59,6 +61,10 @@ class GuiHttpTests(unittest.TestCase):
             status, body = self.get(asset)
             self.assertEqual(status, 200, asset)
             self.assertTrue(body)
+        # 第三方 3D 库放在 static/vendor/（子目录）—— 必须能取到，否则查看器白屏
+        status, body = self.get("/static/vendor/3Dmol-min.js")
+        self.assertEqual(status, 200)
+        self.assertIn(b"3Dmol", body[:4000])
 
     def test_frontend_wires_i18n_and_settings(self):
         """前端契约：index.html 用 data-i18n 标注、app.js 调 i18n/settings 接口。"""
@@ -75,6 +81,107 @@ class GuiHttpTests(unittest.TestCase):
         css = css.decode("utf-8")
         # hidden 属性必须能压过 .sheet 的 display:flex（否则弹层一直罩住界面 —— 已踩过）
         self.assertIn(".sheet[hidden]", css)
+
+    # ----------------------------------------------------------- 3D（ADR-012）
+
+    def test_viewer3d_page_is_served(self):
+        for path in ("/viewer3d", "/viewer3d.html"):
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            text = body.decode("utf-8")
+            self.assertIn("3Dmol-min.js", text)               # 必须引用自托管的库
+            self.assertNotIn("cdn", text.lower())             # 不许有 CDN（离线要求）
+            self.assertIn("viewer3d.js", text)
+
+    def test_viewer3d_assets_are_local(self):
+        for asset in ("/static/viewer3d.js", "/static/viewer3d.css"):
+            status, body = self.get(asset)
+            self.assertEqual(status, 200, asset)
+            self.assertTrue(body)
+        _status, js = self.get("/static/viewer3d.js")
+        js = js.decode("utf-8")
+        for hook in ("/api/render3d", "pngURI", "$3Dmol", "data-i18n"):
+            self.assertIn(hook, js, "viewer3d.js 缺少 %s" % hook)
+
+    def test_render3d_returns_geometry_not_image(self):
+        """路由契约：回的是 molblock 几何数据，不是图片文件。"""
+        fake = render3d_mod.Conformer3D(
+            smiles="CCO", molblock="\n     RDKit          3D\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\nM  END\n",
+            atoms=9, heavy_atoms=3, formula="C2H6O", mw=46.07, energy=-1.337,
+            method="ETKDGv3 + MMFF94")
+        with mock.patch.object(render3d_mod, "embed3d", return_value=fake):
+            status, payload = self.post("/api/render3d", {"smiles": "CCO"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["format"], "sdf")
+        self.assertIn("M  END", payload["molblock"])
+        self.assertEqual(payload["formula"], "C2H6O")
+        self.assertEqual(payload["energy"], -1.337)
+        # 服务端不写任何文件：预览与输出目录都不该多出东西
+        self.assertEqual([p.name for p in self.outdir.iterdir()], [])
+
+    def test_render3d_missing_rdkit_is_503(self):
+        """缺 RDKit 是**环境能力**缺失（503），不是用户参数写错（400）。"""
+        from chemfigstudio.errors import ConfigError
+        with mock.patch.object(render3d_mod, "embed3d",
+                               side_effect=ConfigError(render3d_mod.RDKIT_3D_HINT)):
+            status, payload = self.post("/api/render3d", {"smiles": "CCO"})
+        self.assertEqual(status, 503)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload.get("needRdkit"))
+        self.assertIn("rdkit", payload["error"].lower())
+
+    def test_render3d_bad_smiles_is_400(self):
+        from chemfigstudio.errors import RenderError
+        with mock.patch.object(render3d_mod, "embed3d", side_effect=RenderError("无法解析")):
+            status, payload = self.post("/api/render3d", {"smiles": "!!!"})
+        self.assertEqual(status, 400)
+        self.assertFalse(payload["ok"])
+
+    def test_render3d_empty_smiles_is_400(self):
+        status, payload = self.post("/api/render3d", {"smiles": "   "})
+        self.assertEqual(status, 400)
+        self.assertIn("smiles", payload["error"])
+
+    def test_render3d_bad_seed_is_400(self):
+        status, payload = self.post("/api/render3d", {"smiles": "CCO", "seed": "abc"})
+        self.assertEqual(status, 400)
+        self.assertIn("seed", payload["error"])
+
+    def test_render3d_options_are_passed_through(self):
+        seen = {}
+
+        def fake_embed(smiles, **kwargs):
+            seen["smiles"] = smiles
+            seen.update(kwargs)
+            return render3d_mod.Conformer3D(smiles=smiles, molblock="M  END\n",
+                                            atoms=9, heavy_atoms=3)
+
+        with mock.patch.object(render3d_mod, "embed3d", side_effect=fake_embed):
+            status, _payload = self.post("/api/render3d",
+                                         {"smiles": "CCO", "seed": 7, "conformers": 2,
+                                          "optimise": False})
+        self.assertEqual(status, 200)
+        self.assertEqual(seen, {"smiles": "CCO", "seed": 7, "conformers": 2,
+                                "optimise": False})
+
+    def test_static_subdir_traversal_is_still_blocked(self):
+        """允许 vendor/ 子目录 ≠ 放开穿越：逃出 static/ 一律 403。"""
+        for path in ("/static/../../etc/passwd", "/static/vendor/../../server.py",
+                     "/static/.hidden", "/static/vendor/.secret"):
+            with self.subTest(path=path):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    self.get(path)
+                self.assertIn(ctx.exception.code, (403, 404))
+
+    def test_static_can_serve_nested_asset(self):
+        """静态目录内的**子目录**资源必须可取（vendor/3Dmol-min.js 就靠这条）。
+
+        以前 _safe_child 一律拒绝含 "/" 的名字 → vendor 库 403 → 查看器直接白屏。
+        """
+        status, body = self.get("/static/vendor/3Dmol-LICENSE.txt")
+        self.assertEqual(status, 200)
+        self.assertIn(b"BSD", body)
 
     def test_health(self):
         status, body = self.get("/api/health")

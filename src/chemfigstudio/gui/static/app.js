@@ -852,6 +852,14 @@ function skSceneJson() {
   });
 }
 
+/** 打开 3D 查看器：把当前表单里的 SMILES 带过去，省得用户再敲一遍。 */
+function openViewer3d() {
+  const field = $("param-smiles");
+  const smiles = field && field.value ? field.value.trim() : "";
+  const url = smiles ? "/viewer3d?smiles=" + encodeURIComponent(smiles) : "/viewer3d";
+  window.location.href = url;
+}
+
 function openSkeleton() {
   $("sk-panel").hidden = false;
   let parsed = null;
@@ -1012,6 +1020,7 @@ async function boot() {
   $("open-export").addEventListener("click", openExport);
   $("open-batch").addEventListener("click", openBatch);
   $("open-skeleton").addEventListener("click", openSkeleton);
+  $("open-viewer3d").addEventListener("click", openViewer3d);
   $("sk-close").addEventListener("click", () => { $("sk-panel").hidden = true; });
   installSkeletonEditor();
   $("batch-close").addEventListener("click", () => { $("batch-panel").hidden = true; });

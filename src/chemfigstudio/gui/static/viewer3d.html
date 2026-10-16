@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D 分子查看器 — chemfigstudio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/viewer3d.css">
+</head>
+<body class="viewer3d">
+
+  <header class="topbar">
+    <div class="brand">
+      <strong>chemfigstudio</strong>
+      <span class="tag" data-i18n="viewer3d.title">3D 分子查看器</span>
+    </div>
+    <div class="actions">
+      <button id="vd-back" data-i18n="viewer3d.back">返回主界面</button>
+      <select id="vd-language" title="language"></select>
+    </div>
+  </header>
+
+  <main class="v3d-main">
+    <section class="panel v3d-side">
+      <label class="field">
+        <span data-i18n="param.smiles.label">SMILES</span>
+        <input id="vd-smiles" type="text" spellcheck="false" value="CCO" placeholder="CCO">
+      </label>
+      <p class="hint" data-i18n="viewer3d.smilesHelp">例如 CCO=乙醇、c1ccccc1=苯、C1CCCCC1=环己烷</p>
+
+      <label class="field">
+        <span data-i18n="viewer3d.style">显示方式</span>
+        <select id="vd-style">
+          <option value="ballstick" data-i18n="viewer3d.style.ballstick">球棍模型</option>
+          <option value="spacefill" data-i18n="viewer3d.style.spacefill">空间填充</option>
+          <option value="stick" data-i18n="viewer3d.style.stick">棍状</option>
+          <option value="line" data-i18n="viewer3d.style.line">线框</option>
+        </select>
+      </label>
+
+      <label class="check">
+        <input id="vd-labels" type="checkbox">
+        <span data-i18n="viewer3d.labels">显示元素符号</span>
+      </label>
+
+      <div class="actions v3d-view-actions">
+        <button id="vd-fit" data-i18n="viewer3d.fit">适应窗口</button>
+        <button id="vd-reset" data-i18n="viewer3d.reset">重置视角</button>
+        <button id="vd-spin" data-i18n="viewer3d.spin">自动旋转</button>
+      </div>
+
+      <h3 data-i18n="viewer3d.export">导出静帧</h3>
+      <label class="field">
+        <span data-i18n="viewer3d.exportWidth">宽度（px）</span>
+        <input id="vd-width" type="number" min="320" max="4096" step="20" value="3000">
+      </label>
+      <p class="hint" data-i18n="viewer3d.exportHelp">高度按画布比例自动计算。3000 px 约合 300 dpi 的报告插图。</p>
+      <label class="check">
+        <input id="vd-transparent" type="checkbox">
+        <span data-i18n="viewer3d.transparent">透明背景（PNG）</span>
+      </label>
+      <div class="actions">
+        <button id="vd-export" class="primary" data-i18n="viewer3d.exportPng">导出 PNG</button>
+      </div>
+
+      <p class="status" id="vd-status"></p>
+      <p class="error" id="vd-error" hidden></p>
+      <ul class="v3d-meta" id="vd-meta"></ul>
+    </section>
+
+    <section class="panel v3d-stage">
+      <div id="vd-host" class="v3d-host"></div>
+      <p class="empty" id="vd-empty" data-i18n="viewer3d.empty">输入 SMILES 后点「生成 3D」</p>
+      <div class="actions v3d-stage-actions">
+        <button id="vd-build" class="primary" data-i18n="viewer3d.build">生成 3D</button>
+        <span class="hint" data-i18n="viewer3d.dragHint">拖动旋转 · 滚轮缩放</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/vendor/3Dmol-min.js"></script>
+  <script src="/static/viewer3d.js"></script>
+</body>
+</html>

@@ -5,6 +5,42 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
+### Added
+
+- **3D molecule viewer** — SMILES → a real 3D conformer → rotate it in the app, export a
+  high-resolution still frame.
+  - `render3d.py` wraps RDKit (ETKDGv3 multi-conformer + MMFF94, lowest energy wins, fixed
+    seed so the same molecule always gives the same conformer) and returns V2000 molblocks.
+    RDKit stays an **optional** dependency and its absence produces an actionable message.
+  - `POST /api/render3d` + a separate `/viewer3d` page rendering with a **self-hosted**
+    3Dmol.js (no CDN, works offline): ball-and-stick / space-filling / sticks / wireframe,
+    element labels, auto-rotate, fit-to-view, reset view.
+  - PNG export up to 3000 px (≈300 dpi) with an optional transparent background.
+  - CLI: `chemfigstudio render3d --smiles CCCCO -o butanol.sdf` (`--json` for scripts);
+    `doctor` now reports 3D capability. Exit codes follow the existing convention
+    (3 = missing environment dependency, 2 = bad argument).
+  - `scripts/build-macos-app.sh` can embed `rdkit` + `numpy` into `Resources/vendor`
+    (~113 MB app); `--no-vendor` keeps the small build.
+
+### Fixed
+
+- **Static assets in subdirectories were always 403** — `_safe_child()` rejected any name
+  containing `/`, so `static/vendor/` could not be served and the 3D page would have shown
+  a blank canvas. It now accepts `allow_dirs=True` while still rejecting `..`, hidden files
+  and escapes.
+- **`smiles.rdkit_source()` reported "unavailable" for `.pylibs`/`vendor` installs** — it
+  never called `ensure_rdkit_path()`, so a real RDKit was only found by accident when it sat
+  in user-site. `rdkit_available()` is fixed the same way.
+- **SMILES error text depended on whether RDKit was installed** — for `C`, the built-in path
+  suggested "methanol is CO (a lone C is methane)" while the RDKit path only said
+  "0 oxygens", so installing RDKit made the message *worse*. Both paths now share one
+  pre-check.
+- **RDKit wrote parse errors straight to stderr**, breaking the "library code never prints"
+  rule; now wrapped in `rdBase.BlockLogs()`.
+
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

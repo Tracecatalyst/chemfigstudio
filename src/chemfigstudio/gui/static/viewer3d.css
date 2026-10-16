@@ -1,0 +1,98 @@
+/* viewer3d.css —— 3D 查看器页面样式
+ *
+ * 复用 style.css 的 CSS 变量（深色模式自动跟随），只加本页特有的布局。
+ * 独立文件而不是塞进 style.css：主界面不需要 3D 的样式，按需加载（ADR-012）。
+ */
+
+.v3d-main {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--gap);
+  padding: var(--gap);
+  align-items: start;
+}
+
+.v3d-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.v3d-side h3 {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.v3d-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 3Dmol 会往这个容器里插 canvas；容器必须有确定尺寸，否则视口 0×0（踩过） */
+.v3d-host {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  min-height: 320px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #ffffff;              /* 3D 背景固定白：与导出帧一致 */
+  overflow: hidden;
+}
+
+.v3d-stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.v3d-view-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.v3d-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.v3d-meta li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.v3d-meta li:last-child { border-bottom: none; }
+
+.v3d-meta code {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.v3d-note {
+  color: var(--warn-ink);
+  display: block !important;
+}
+
+@media (max-width: 900px) {
+  .v3d-main { grid-template-columns: minmax(0, 1fr); }
+}

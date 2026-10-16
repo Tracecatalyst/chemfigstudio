@@ -38,11 +38,20 @@ def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
-def _safe_child(base: Path, name: str) -> Optional[Path]:
-    """把 ``name`` 限制在 ``base`` 目录内（防目录穿越），返回真实路径。"""
-    if not name or "/" in name or "\\" in name or name.startswith("."):
+def _safe_child(base: Path, name: str, *, allow_dirs: bool = False) -> Optional[Path]:
+    """把 ``name`` 限制在 ``base`` 目录内（防目录穿越），返回真实路径。
+
+    ``allow_dirs=True`` 时允许 ``vendor/3Dmol-min.js`` 这类**子目录**静态资源；
+    仍然逐段拒绝 ``..``、隐藏文件，且最终必须落在 ``base`` 内。
+    """
+    if not name or "\\" in name or name.startswith("."):
         return None
-    candidate = (base / name).resolve()
+    parts = [part for part in name.split("/") if part]
+    if not allow_dirs and len(parts) != 1:
+        return None
+    if not parts or any(part == ".." or part.startswith(".") for part in parts):
+        return None
+    candidate = base.joinpath(*parts).resolve()
     try:
         candidate.relative_to(base.resolve())
     except ValueError:
@@ -99,8 +108,15 @@ class GuiHandler(BaseHTTPRequestHandler):
         if route in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html")
             return
+        if route in ("/viewer3d", "/viewer3d.html"):
+            # 3D 查看器是独立页面（3Dmol.js ~0.5 MB）：主界面不需要它，
+            # 按需加载，避免拖慢启动。
+            self._send_file(STATIC_DIR / "viewer3d.html")
+            return
         if route.startswith("/static/"):
-            child = _safe_child(STATIC_DIR, unquote(route[len("/static/"):]))
+            # 允许子目录：3Dmol.js 这类第三方库放在 static/vendor/ 下
+            child = _safe_child(STATIC_DIR, unquote(route[len("/static/"):]),
+                                allow_dirs=True)
             if child is None:
                 self._send_json(403, {"ok": False, "error": "非法静态资源路径"})
             else:
@@ -199,6 +215,8 @@ class GuiHandler(BaseHTTPRequestHandler):
             self._handle_session(payload)
         elif route == "/api/batch":
             self._handle_batch(payload)
+        elif route == "/api/render3d":
+            self._handle_render3d(payload)
         else:
             self._send_json(404, {"ok": False, "error": "未知路径 %s" % route})
 
@@ -246,6 +264,54 @@ class GuiHandler(BaseHTTPRequestHandler):
         data["ok"] = True
         data["file"] = Path(str(data["path"])).name
         data["url"] = "/out/%s" % Path(str(data["path"])).name
+        self._send_json(200, data)
+
+    def _handle_render3d(self, payload: Dict[str, Any]) -> None:
+        """SMILES → 3D 构象（molblock）。只回几何数据，渲染在前端。
+
+        成功：``{"ok":true, …Conformer3D.as_dict()}``；
+        RDKit 缺失 → **503** + 安装指引（环境能力缺失，不是用户写错）；
+        SMILES 非法 → **400**。
+        """
+        from .. import render3d as render3d_mod
+
+        raw = payload.get("smiles")
+        smiles = str(raw).strip() if raw is not None else ""
+        if not smiles:
+            self._send_json(400, {"ok": False, "error": "smiles 不能为空"})
+            return
+
+        kwargs: Dict[str, Any] = {}
+        if payload.get("seed") is not None:
+            try:
+                kwargs["seed"] = int(payload["seed"])
+            except (TypeError, ValueError):
+                self._send_json(400, {"ok": False, "error": "seed 必须是整数"})
+                return
+        if payload.get("conformers") is not None:
+            try:
+                kwargs["conformers"] = max(1, int(payload["conformers"]))
+            except (TypeError, ValueError):
+                self._send_json(400, {"ok": False, "error": "conformers 必须是整数"})
+                return
+        if payload.get("optimise") is not None:
+            kwargs["optimise"] = bool(payload["optimise"])
+
+        try:
+            conformer = render3d_mod.embed3d(smiles, **kwargs)
+        except ConfigError as exc:
+            self._send_json(503, {"ok": False, "error": str(exc), "needRdkit": True})
+            return
+        except RenderError as exc:
+            self._send_json(400, {"ok": False, "error": str(exc)})
+            return
+        except Exception as exc:                              # pragma: no cover
+            self.log_message("render3d failed: %s", traceback.format_exc())
+            self._send_json(500, {"ok": False, "error": "内部错误：%s" % exc})
+            return
+
+        data = conformer.as_dict()
+        data["ok"] = True
         self._send_json(200, data)
 
     def _query_lang(self) -> Optional[str]:

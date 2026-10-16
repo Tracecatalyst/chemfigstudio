@@ -29,7 +29,7 @@ from .errors import ConfigError, RenderError
 from . import settings as settings_mod
 
 __all__ = ["main", "build_parser", "VERSION"]
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 class _CliExit(SystemExit):
@@ -155,6 +155,18 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--summary", default="", help="底部汇总行（省略时自动生成）")
     add_common(c)
 
+    # 3D 构象导出（不是"图"：出的是 molblock/SDF，由 3D 查看器或报告使用）
+    r3 = sub.add_parser("render3d", help=i18n.t("cli.cmd.render3d"))
+    r3.add_argument("--smiles", required=True, help=i18n.t("param.smiles.help"))
+    r3.add_argument("-o", "--out", default=None, help=i18n.t("cli.opt.out"))
+    r3.add_argument("--seed", type=int, default=None,
+                    help="随机种子（默认固定值 → 同一分子每次同一构象）")
+    r3.add_argument("--conformers", type=int, default=None,
+                    help="候选构象数，取 MMFF 能量最低者（默认 8）")
+    r3.add_argument("--no-optimise", dest="optimise", action="store_false", default=True,
+                    help="跳过 MMFF94 几何优化（更快，几何略糙）")
+    r3.add_argument("--json", action="store_true", help=i18n.t("cli.opt.json"))
+
     # doctor / gui / app ----------------------------------------------------
     sub.add_parser("doctor", help=i18n.t("cli.cmd.doctor"))
     g = sub.add_parser("gui", help=i18n.t("cli.cmd.gui"))
@@ -210,6 +222,56 @@ def _print_result(result, as_json: bool, stream=None) -> None:
     print(i18n.t("cli.done", path=data["path"], size=tuple(data["size"])), file=stream)
     for warning in data["warnings"]:
         print("  " + i18n.t("cli.warn", message=warning), file=stream)
+
+
+def _cmd_render3d(args: argparse.Namespace) -> int:
+    """``render3d``：SMILES → 3D 构象文件（molblock/SDF）。
+
+    出的是**几何数据**而不是位图 —— 3D 的绘制由 3D 查看器（3Dmol.js）负责，
+    服务端不自己写渲染（见 docs/DECISIONS.md 的 ADR-012）。
+    """
+    from . import render3d as render3d_mod
+
+    cfg = settings_mod.Settings.load()
+    kwargs: Dict[str, Any] = {}
+    if args.seed is not None:
+        kwargs["seed"] = int(args.seed)
+    if args.conformers is not None:
+        kwargs["conformers"] = max(1, int(args.conformers))
+    kwargs["optimise"] = bool(args.optimise)
+
+    try:
+        conformer = render3d_mod.embed3d(args.smiles, **kwargs)
+    except ConfigError as exc:
+        print(i18n.t("cli.err.env", message=exc), file=sys.stderr)
+        return 3
+    except RenderError as exc:
+        print(i18n.t("cli.err.param", message=exc), file=sys.stderr)
+        return 2
+
+    data = conformer.as_dict()
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False))
+        return 0
+
+    target = Path(args.out).expanduser() if args.out else None
+    if target is None:
+        base = cfg.output_dir() or Path.cwd()
+        target = base / ("%s.sdf" % (conformer.formula or "molecule"))
+    if target.is_dir():
+        target = target / ("%s.sdf" % (conformer.formula or "molecule"))
+    if not target.suffix:
+        target = target.with_suffix(".sdf")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(conformer.molblock, encoding="utf-8")
+
+    print(i18n.t("cli.render3d.wrote") + ": %s" % target)
+    print("  " + i18n.t("cli.render3d.summary", formula=conformer.formula or "-",
+                        atoms=conformer.atoms, energy=conformer.energy,
+                        method=conformer.method))
+    for note in conformer.notes:
+        print("  " + i18n.t("cli.warn", message=note))
+    return 0
 
 
 def _params_from_args(args: argparse.Namespace) -> Dict[str, Any]:
@@ -278,6 +340,11 @@ def _doctor() -> int:
     source = smiles_mod.rdkit_source()
     print("  %-12s: %s" % (t("cli.doctor.rdkit"),
                             ("✅ %s" % source) if source else "—"))
+    from . import render3d as render3d_mod
+    if render3d_mod.rdkit3d_available():
+        print("  %-12s: ✅ %s" % (t("cli.doctor.rdkit3d"), t("cli.doctor.rdkit3d.on")))
+    else:
+        print("  %-12s: — %s" % (t("cli.doctor.rdkit3d"), t("cli.doctor.rdkit3d.off")))
     print("  %-12s: %s" % (t("cli.doctor.cwd"), Path.cwd()))
     print("  %-12s: %s" % (t("cli.doctor.figures"), ", ".join(api.FIGURES)))
     from . import plugins as plugins_mod
@@ -360,6 +427,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.cmd == "doctor":
         return _doctor()
+
+    if args.cmd == "render3d":
+        return _cmd_render3d(args)
 
     if getattr(args, "generated_kind", None):
         from . import api as api_mod

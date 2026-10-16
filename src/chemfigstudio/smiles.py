@@ -68,7 +68,11 @@ _LINEAR_ALCOHOL_RE = re.compile(r"^C+O$", re.IGNORECASE)
 # --------------------------------------------------------------------- RDKit 探测
 
 def _lib_candidates() -> List[Path]:
-    """候选依赖目录（前插 sys.path 用）：``CHEMFIG_PYLIBS`` → 仓库根 ``.pylibs`` → 当前目录。"""
+    """候选依赖目录（前插 sys.path 用）。
+
+    顺序：``CHEMFIG_PYLIBS`` → 仓库根 ``.pylibs`` → 当前目录 ``.pylibs``
+    → 仓库根 ``vendor``（原生 .app 内嵌的 rdkit/numpy 放在这里）。
+    """
     candidates: List[Path] = []
     env = os.environ.get("CHEMFIG_PYLIBS", "")
     for chunk in env.split(os.pathsep):
@@ -77,7 +81,9 @@ def _lib_candidates() -> List[Path]:
     here = Path(__file__).resolve()
     for parent in list(here.parents)[:4]:                 # 仓库根附近
         candidates.append(parent / ".pylibs")
+        candidates.append(parent / "vendor")              # 原生 app 的内嵌依赖
     candidates.append(Path.cwd() / ".pylibs")
+    candidates.append(Path.cwd() / "vendor")
     seen, unique = set(), []
     for path in candidates:
         key = str(path)
@@ -105,7 +111,12 @@ def ensure_rdkit_path() -> List[str]:
 
 
 def rdkit_source() -> Optional[str]:
-    """RDKit 从哪来：``.pylibs`` 路径、``user-site`` 或 None（不可用）。"""
+    """RDKit 从哪来：``.pylibs`` / ``vendor`` 路径、``user-site`` 或 None（不可用）。
+
+    先做一次 :func:`ensure_rdkit_path` —— 否则 RDKit 装在 ``.pylibs``（或原生 app
+    内嵌的 ``vendor``）时这里会误报"不可用"（只有装在 user-site 才碰巧能 import）。
+    """
+    ensure_rdkit_path()
     try:
         import rdkit                                        # noqa: F401
     except ImportError:
@@ -119,7 +130,8 @@ def rdkit_source() -> Optional[str]:
 
 
 def rdkit_available() -> bool:
-    """RDKit 是否可用（不影响其它功能）。"""
+    """RDKit 是否可用（不影响其它功能）。同样先确保 ``.pylibs``/``vendor`` 已入 path。"""
+    ensure_rdkit_path()
     try:
         import rdkit  # noqa: F401
         return True
@@ -166,16 +178,28 @@ def resolve_name(name: str) -> Optional[int]:
 
 # ----------------------------------------------------------------------- SMILES
 
+def _raise_not_an_alcohol(smiles: str) -> None:
+    """两条路径**共用**的前检：连"这不是醇"都算不上的输入，报同一条可执行提示。
+
+    为什么要有它（踩过）：内置解析器和 RDKit 原本各写各的文案，同一个 ``C``
+    在内置路径会提示「甲醇的 SMILES 是 CO」，在 RDKit 路径只报「0 个氧」——
+    装了 RDKit 的用户反而看到更差的提示，测试也因此随机器而红。
+    """
+    text = str(smiles or "").strip()
+    if "O" not in text.upper():
+        raise RenderError(
+            "SMILES %r 里没有 O —— 它不是醇。甲醇的 SMILES 是 CO"
+            "（单独一个 C 是甲烷）。" % smiles)
+
+
 def _resolve_builtin(smiles: str) -> SmilesInfo:
     """零依赖路径：只认直链伯醇 ``C…CO``。"""
     text = smiles.strip().strip('"').strip("'")
+    _raise_not_an_alcohol(smiles)
     if not _LINEAR_ALCOHOL_RE.match(text):
         raise RenderError(
             "无法用内置解析器识别 SMILES %r：它只支持直链伯醇（CO、CCO、CCCO、CCCCO…）。"
-            "如需支链/环/杂原子，请安装 RDKit：%s" % (smiles, rdkit_hint())
-                + ("" if "O" in str(smiles).upper()
-                   else "\n提示：这个 SMILES 里没有 O，它不是醇 —— 甲醇的 SMILES 是 CO"
-                        "（单独一个 C 是甲烷）。"))
+            "如需支链/环/杂原子，请安装 RDKit：%s" % (smiles, rdkit_hint()))
     n = text.upper().count("C")
     return SmilesInfo(smiles=text, n_carbons=n, name=CARBON_TO_NAME.get(n, ""),
                       source="builtin")
@@ -185,21 +209,24 @@ def _resolve_rdkit(smiles: str) -> SmilesInfo:
     from rdkit import Chem
     from rdkit.Chem import Descriptors, rdMolDescriptors
 
+    _raise_not_an_alcohol(smiles)
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        raise RenderError("RDKit 无法解析 SMILES %r（写法有误？）" % smiles)
+        raise RenderError("SMILES %r 写法有误，RDKit 无法解析（检查括号/环编号/元素符号）"
+                          % smiles)
 
     symbols = [a.GetSymbol() for a in mol.GetAtoms()]
     if symbols.count("O") != 1:
-        raise RenderError("只支持含一个氧（一个 -OH）的醇，%r 里有 %d 个氧"
+        raise RenderError("SMILES %r 里有 %d 个氧；本工具只支持含一个氧（一个 -OH）的醇"
                           % (smiles, symbols.count("O")))
     extra = sorted(set(symbols) - {"C", "O", "H"})
     if extra:
-        raise RenderError("只支持 C/H/O 组成的醇，%r 里还有：%s" % (smiles, ", ".join(extra)))
+        raise RenderError("SMILES %r 里还有 %s；本工具只支持 C/H/O 组成的醇"
+                          % (smiles, ", ".join(extra)))
 
     o_atom = [a for a in mol.GetAtoms() if a.GetSymbol() == "O"][0]
     if o_atom.GetTotalNumHs() != 1 or o_atom.GetDegree() != 1:
-        raise RenderError("这个氧不是羟基 -OH（%r），不能当醇画" % smiles)
+        raise RenderError("SMILES %r 里的氧不是羟基 -OH，不能当醇画" % smiles)
 
     notes: List[str] = []
     if mol.GetRingInfo().NumRings():

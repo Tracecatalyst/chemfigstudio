@@ -9,9 +9,11 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from chemfigstudio import cli, i18n
+from chemfigstudio import render3d as render3d_mod
 from chemfigstudio import settings as settings_mod
 from chemfigstudio.smiles import resolve_name, resolve_smiles
 
@@ -110,6 +112,89 @@ class ErrorHandlingTests(CliTestCase):
             api.render("alcohol", out=str(self.tmp / "x.png"), params={"bogus": 1})
 
 
+class Render3DCommandTests(CliTestCase):
+    """``render3d`` 子命令：出的是几何数据（molblock），不是位图。
+
+    RDKit 是可选依赖，所以这里 mock 掉 :func:`render3d.embed3d`：
+    测的是 CLI 自己的契约（退出码、写盘、json、参数透传）。
+    """
+
+    @staticmethod
+    def _fake_conformer(smiles="CCO"):
+        return render3d_mod.Conformer3D(
+            smiles=smiles, molblock="BLOCK-LINE-1\nM  END\n", atoms=9, heavy_atoms=3,
+            formula="C2H6O", mw=46.07, energy=-1.337, method="ETKDGv3 + MMFF94")
+
+    def test_writes_sdf_file(self):
+        target = self.tmp / "out" / "ethanol.sdf"          # 父目录不存在，应被自动创建
+        with mock.patch.object(render3d_mod, "embed3d", return_value=self._fake_conformer()):
+            code, out, _err = self.run_cli("render3d", "--smiles", "CCO", "-o", str(target))
+        self.assertEqual(code, 0, out)
+        self.assertTrue(target.exists())
+        self.assertIn("M  END", target.read_text(encoding="utf-8"))
+        self.assertIn(str(target), out)
+        self.assertIn("C2H6O", out)                        # 摘要行带分子式
+
+    def test_json_goes_to_stdout_without_writing_file(self):
+        with mock.patch.object(render3d_mod, "embed3d", return_value=self._fake_conformer()):
+            code, out, _err = self.run_cli("render3d", "--smiles", "CCO", "--json")
+        self.assertEqual(code, 0, out)
+        data = json.loads(out)
+        self.assertEqual(data["format"], "sdf")
+        self.assertEqual(data["molblock"].strip(), "BLOCK-LINE-1\nM  END".strip())
+        self.assertEqual(data["energy"], -1.337)
+        # --json 是给脚本吃的，不该在输出目录留下任何文件
+        self.assertEqual(list(self.tmp.iterdir()), [])
+
+    def test_missing_rdkit_is_environment_error(self):
+        from chemfigstudio.errors import ConfigError
+        with mock.patch.object(render3d_mod, "embed3d",
+                               side_effect=ConfigError(render3d_mod.RDKIT_3D_HINT)):
+            code, _out, err = self.run_cli("render3d", "--smiles", "CCO")
+        self.assertEqual(code, 3)                          # 3 = 环境错误（不是用户参数错）
+        self.assertIn("rdkit", err.lower())
+
+    def test_bad_smiles_is_param_error(self):
+        from chemfigstudio.errors import RenderError
+        with mock.patch.object(render3d_mod, "embed3d",
+                               side_effect=RenderError("RDKit 无法解析")):
+            code, _out, err = self.run_cli("render3d", "--smiles", "!!!")
+        self.assertEqual(code, 2)                          # 2 = 参数错误
+        self.assertIn("RDKit", err)
+
+    def test_flags_are_passed_through(self):
+        seen = {}
+
+        def fake_embed(smiles, **kwargs):
+            seen["smiles"] = smiles
+            seen.update(kwargs)
+            return self._fake_conformer()
+
+        with mock.patch.object(render3d_mod, "embed3d", side_effect=fake_embed):
+            code, _out, _err = self.run_cli("render3d", "--smiles", "CCCCO",
+                                            "--seed", "42", "--conformers", "3",
+                                            "--no-optimise", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["smiles"], "CCCCO")
+        self.assertEqual(seen["seed"], 42)
+        self.assertEqual(seen["conformers"], 3)
+        self.assertFalse(seen["optimise"])
+
+    def test_default_output_name_uses_formula(self):
+        """不给 -o 时落到设置里的输出目录，文件名用分子式（可读、稳定）。"""
+        target = self.tmp / "outdir"
+        self.run_cli("settings", "--output-dir", str(target))
+        with mock.patch.object(render3d_mod, "embed3d", return_value=self._fake_conformer()):
+            code, out, _err = self.run_cli("render3d", "--smiles", "CCO")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(p.name for p in target.iterdir()), ["C2H6O.sdf"])
+
+    def test_doctor_reports_3d_capability(self):
+        code, out, _err = self.run_cli("doctor")
+        self.assertEqual(code, 0)
+        self.assertIn(i18n.t("cli.doctor.rdkit3d"), out)
+
+
 class SmilesTests(unittest.TestCase):
     def test_linear_alcohol_builtin(self):
         info = resolve_smiles("CCCCO")
@@ -126,6 +211,25 @@ class SmilesTests(unittest.TestCase):
         from chemfigstudio.errors import RenderError
         with self.assertRaises(RenderError):
             resolve_smiles("CCC(=O)O")
+
+    def test_missing_oxygen_hint_is_install_independent(self):
+        """「不是醇」的提示必须与装没装 RDKit 无关。
+
+        踩过：内置路径会提示「甲醇的 SMILES 是 CO」，RDKit 路径却只报「0 个氧」——
+        用户装了 RDKit 反而看到更差的提示。两条路径现在共用同一道前检。
+        """
+        from chemfigstudio import smiles as smiles_mod
+        from chemfigstudio.errors import RenderError
+        expected = smiles_mod._resolve_builtin
+        with self.assertRaises(RenderError) as builtin_ctx:
+            expected("C")
+        hint = "甲醇的 SMILES 是 CO"
+        self.assertIn(hint, str(builtin_ctx.exception))
+        # RDKit 路径（装了才测）必须给出同一句提示，而不是只报原子数
+        if smiles_mod.rdkit_available():
+            with self.assertRaises(RenderError) as rdkit_ctx:
+                smiles_mod._resolve_rdkit("C")
+            self.assertIn(hint, str(rdkit_ctx.exception))
 
 
 class LanguageTests(CliTestCase):

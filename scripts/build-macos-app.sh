@@ -58,6 +58,7 @@ find "$APP/Contents/Resources/src" -name '__pycache__' -type d -prune -exec rm -
 echo "    src：$(du -sh "$APP/Contents/Resources/src" | cut -f1)"
 
 PIL_SIZE="未内嵌"
+RDKIT_SIZE="未内嵌"
 if [ "$VENDOR" = "1" ]; then
   echo "── 4/6 内嵌 Pillow（让对方机器没装 Pillow 也能跑）──"
   PIL_DIR="$(python3 - <<'PY' 2>/dev/null || true
@@ -76,8 +77,55 @@ PY
     echo "    ⚠ 找不到 Pillow，跳过（目标机器需自行确保 python3 有 Pillow）"
     PIL_SIZE="未内嵌"
   fi
+
+  echo "── 4b/6 内嵌 RDKit + numpy（3D 构象生成；约 100 MB，见 ADR-012）──"
+  # 用「真的能 import 到 rdkit」的那个 python3 来找目录；找不到就明确跳过。
+  RDKIT_DIRS="$(python3 - <<'PY' 2>/dev/null || true
+import os, sys
+try:
+    import rdkit
+except Exception:
+    sys.exit(0)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(rdkit.__file__))))
+site = os.path.dirname(os.path.dirname(os.path.abspath(rdkit.__file__)))
+rd = os.path.dirname(os.path.abspath(rdkit.__file__))
+print(rd)
+try:
+    import numpy
+    print(os.path.dirname(os.path.abspath(numpy.__file__)))
+except Exception:
+    pass
+PY
+)"
+  if [ -n "$RDKIT_DIRS" ]; then
+    mkdir -p "$APP/Contents/Resources/vendor"
+    while IFS= read -r src_dir; do
+      [ -n "$src_dir" ] || continue
+      name="$(basename "$src_dir")"
+      # 原样整目录拷贝：RDKit 的 .so 通过 @loader_path/../.dylibs/ 找 116 个 dylib，
+      # 相对结构一旦被拆开就全部加载失败（实测）。
+      cp -R "$src_dir" "$APP/Contents/Resources/vendor/$name"
+    done <<EOF
+$RDKIT_DIRS
+EOF
+    # 只删**确认不影响功能**的大件：Contrib/sping/MolStandardize 与缓存、测试数据。
+    # 注意 rdkit/ML 不能删 —— rdkit.Chem.Descriptors → GraphDescriptors → ML.InfoTheory（踩过）。
+    rm -rf "$APP/Contents/Resources/vendor/rdkit/Contrib" \
+           "$APP/Contents/Resources/vendor/rdkit/sping" \
+           "$APP/Contents/Resources/vendor/rdkit/Chem/MolStandardize"
+    find "$APP/Contents/Resources/vendor" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    find "$APP/Contents/Resources/vendor" -name '*.pyc' -delete 2>/dev/null || true
+    find "$APP/Contents/Resources/vendor" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
+    find "$APP/Contents/Resources/vendor" -type d -name test_data -prune -exec rm -rf {} + 2>/dev/null || true
+    RDKIT_SIZE="$(du -sh "$APP/Contents/Resources/vendor" | cut -f1)"
+    echo "    RDKit+numpy：${RDKIT_SIZE}（$(python3 -c 'import rdkit;print(rdkit.__version__)' 2>/dev/null || echo '?')）"
+  else
+    echo "    ⚠ 当前 python3 里没有 RDKit，3D 功能在别人机器上不可用"
+    echo "      要内嵌：python3 -m pip install --target .pylibs rdkit numpy"
+    RDKIT_SIZE="未内嵌（3D 不可用）"
+  fi
 else
-  echo "── 4/6 跳过 Pillow（--no-vendor）──"
+  echo "── 4/6 跳过 Pillow / RDKit（--no-vendor）──"
 fi
 
 if [ "$ICON" = "1" ]; then
@@ -122,4 +170,10 @@ codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "    （ad-hoc �
 echo
 echo "已生成：$APP"
 echo "  版本 $VERSION | 可执行 $(du -h "$APP/Contents/MacOS/ChemFigStudio" | cut -f1) | Pillow $PIL_SIZE | 整包 $(du -sh "$APP" | cut -f1)"
+if [ "$VENDOR" = "1" ] && [ "$RDKIT_SIZE" != "未内嵌" ] && [ "$RDKIT_SIZE" != "未内嵌（3D 不可用）" ]; then
+  echo "  含 RDKit+numpy（3D 可用）：vendor 共 $RDKIT_SIZE"
+  echo "  ⚠ 内嵌的 rdkit/numpy 是**编译扩展**：与当前 Python 版本、架构绑定。"
+  echo "    通用二进制（--arch x86_64 或 make bundle-universal）里它们仍只有本机架构，"
+  echo "    在另一种 CPU 的 Mac 上 3D 会不可用（2D 出图不受影响）。"
+fi
 echo "双击即可运行；也可拖到 /Applications。"
