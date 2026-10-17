@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2D 结构式 vs 3D 构象 — chemfigstudio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/compare.css">
+</head>
+<body class="compare-page">
+
+  <header class="topbar">
+    <div class="brand">
+      <strong>chemfigstudio</strong>
+      <span class="tag" data-i18n="compare.title">2D 结构式 vs 3D 构象</span>
+    </div>
+    <div class="actions">
+      <button id="cmp-back" data-i18n="compare.back">返回主界面</button>
+      <select id="cmp-language" title="language"></select>
+    </div>
+  </header>
+
+  <main class="cmp-main">
+    <section class="panel cmp-controls">
+      <label class="field">
+        <span data-i18n="compare.smiles">SMILES</span>
+        <input id="cmp-smiles" type="text" spellcheck="false" value="C1CCCCC1"
+               placeholder="C1CCCCC1">
+      </label>
+
+      <label class="field">
+        <span data-i18n="compare.preset">示例分子</span>
+        <select id="cmp-preset"></select>
+      </label>
+
+      <div class="actions">
+        <button id="cmp-build" class="primary" data-i18n="compare.build">生成对照</button>
+        <button id="cmp-spin" data-i18n="compare.spin">自动旋转</button>
+      </div>
+
+      <p class="hint" data-i18n="compare.hint">
+        左边是本工具的主场景（课本风格结构式），右边是同一个分子的真实 3D 构象。
+        拖动右边可以旋转。
+      </p>
+      <p class="error" id="cmp-error" hidden></p>
+      <p class="status" id="cmp-status"></p>
+    </section>
+
+    <section class="cmp-panes">
+      <div class="cmp-pane">
+        <p class="pane-label" data-i18n="compare.twoD">2D 结构式</p>
+        <div class="cmp-shot">
+          <p class="empty" id="cmp-2d-empty" data-i18n="compare.empty">还没有图</p>
+          <img id="cmp-2d" alt="2D structure" hidden>
+        </div>
+      </div>
+      <div class="cmp-pane">
+        <p class="pane-label" data-i18n="compare.threeD">3D 构象（可拖动）</p>
+        <div class="cmp-viewer" id="cmp-host">
+          <p class="empty" id="cmp-3d-empty" data-i18n="compare.empty">还没有图</p>
+        </div>
+      </div>
+    </section>
+
+    <ul class="cmp-meta" id="cmp-meta"></ul>
+    <p class="cmp-why" id="cmp-why"></p>
+  </main>
+
+  <script src="/static/vendor/3Dmol-min.js"></script>
+  <script src="/static/compare.js"></script>
+</body>
+</html>

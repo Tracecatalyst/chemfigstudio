@@ -169,7 +169,7 @@ async function doRender() {
   }
 }
 
-/* ---- 草稿：自动保存（不写用户输出目录，） ---- */
+/* ---- 草稿：自动保存（不写用户输出目录，验收 3） ---- */
 let draftTimer = null;
 
 function scheduleDraft() {
@@ -196,7 +196,7 @@ async function saveDraft() {
   if (data.ok) state.draftId = data.id;
 }
 
-/** 启动时恢复最近一次草稿（关掉再打开，未导出的工作还在）。 */
+/** 启动时恢复最近一次草稿（验收 3：关掉再打开，未导出的工作还在）。 */
 async function restoreLatestDraft() {
   const list = await api("/api/documents");
   if (!list.ok || !list.drafts || !list.drafts.length) return false;
@@ -482,7 +482,7 @@ function renderSession() {
   layers.appendChild(el("li", {}, [add]));
 }
 
-/** 输入即刷新：改参数后 250 ms 自动重画（ 的 ≤500 ms 要求）。
+/** 输入即刷新：改参数后 250 ms 自动重画（验收 2 的 ≤500 ms 要求）。
  *  只重画预览，**不导出、不落用户输出目录**；导出仍要点「导出图片…」。 */
 let liveTimer = null;
 
@@ -507,7 +507,7 @@ function installLivePreview() {
   document.addEventListener("change", handler, true);
 }
 
-/** 只刷新画布：不落用户输出目录（/2）。 */
+/** 只刷新画布：不落用户输出目录（验收 1/2）。 */
 async function refreshPreview() {
   if (!state.current) return;
   const data = await api("/api/preview", {
@@ -523,7 +523,7 @@ async function refreshPreview() {
   $("size").textContent = (data.size || []).join(" × ") + " px";
 }
 
-/* ------------------------------------------------------------- 导出（/12） */
+/* ------------------------------------------------------------- 导出（验收 7/12） */
 
 function openExport() {
   $("export-panel").hidden = false;
@@ -560,7 +560,7 @@ async function doExport(overwrite) {
     body: JSON.stringify(exportPayload(overwrite)),
   });
   if (data.needs_confirmation) {
-    // 先问，用户取消则一个字节都不写
+    // 验收 12：先问，用户取消则一个字节都不写
     $("confirm-export").hidden = false;
     $("export-status").textContent = (data.message || "") + "\n" + (data.existing || []).join("\n");
     return;
@@ -572,7 +572,7 @@ async function doExport(overwrite) {
   showWarnings(data.warnings);
 }
 
-/* ------------------------------------------------- 批量导出 */
+/* ------------------------------------------------- 批量导出（验收 14） */
 
 function openBatch() {
   $("batch-panel").hidden = false;
@@ -865,6 +865,14 @@ function openViewer3d() {
   window.location.href = url;
 }
 
+/** 打开"2D 结构式 vs 3D 构象"对照页，把当前表单里的 SMILES 带过去。 */
+function openCompare() {
+  const field = $("param-smiles");
+  const smiles = field && field.value ? field.value.trim() : "";
+  const url = smiles ? "/compare?smiles=" + encodeURIComponent(smiles) : "/compare";
+  window.location.href = url;
+}
+
 function openSkeleton() {
   $("sk-panel").hidden = false;
   let parsed = null;
@@ -1026,6 +1034,7 @@ async function boot() {
   $("open-batch").addEventListener("click", openBatch);
   $("open-skeleton").addEventListener("click", openSkeleton);
   $("open-viewer3d").addEventListener("click", openViewer3d);
+  $("open-compare").addEventListener("click", openCompare);
   $("sk-close").addEventListener("click", () => { $("sk-panel").hidden = true; });
   installSkeletonEditor();
   $("batch-close").addEventListener("click", () => { $("batch-panel").hidden = true; });
@@ -1062,7 +1071,7 @@ async function boot() {
     state.formTabId = session.activeId || (session.session || {}).activeId || null;
   }
   renderSession();
-  await restoreLatestDraft();                    // 
+  await restoreLatestDraft();                    // 验收 3
 }
 
 boot();

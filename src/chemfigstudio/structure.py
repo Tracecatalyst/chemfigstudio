@@ -359,8 +359,8 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
     result.smiles = text
     result.formula = rdMolDescriptors.CalcMolFormula(mol)
     result.mw = round(Descriptors.MolWt(mol), 2)
-    if not result.title:
-        result.title = text
+    # **不要把 SMILES 当标题**：它是表达式不是名字。曾经这里填了 SMILES，
+    # 于是对照页/预览图顶上印着 "C1CCCCC1" —— 要显示名字请显式传 title。
     return result
 
 

@@ -71,9 +71,9 @@ def _path_within(candidate: Path, root: Path) -> bool:
 def _origin_allowed(origin: str, host_header: str) -> bool:
     """同源判定：``Origin`` 的主机必须是**回环地址**，且与 ``Host`` 一致。
 
-    为什么需要它：服务只监听回环，但用户浏览器里任何一个网页都能向
-    ``127.0.0.1:8765`` 发跨站 POST（简单请求不触发预检）。没有这道检查时，
-    恶意页面可以借用户之手改设置、写文件、读本地 CSV。
+    为什么需要它（审计 security-03）：服务只监听回环，但用户浏览器里任何一个网页
+    都能向 ``127.0.0.1:8765`` 发跨站 POST（简单请求不触发预检）。没有这道检查时，
+    DNS-rebinding/恶意页面可以借用户之手改设置、写文件、读本地 CSV。
     非浏览器客户端（curl/脚本）不带 ``Origin``，照常放行。
     """
     from urllib.parse import urlsplit
@@ -142,11 +142,15 @@ class GuiHandler(BaseHTTPRequestHandler):
             return
         if route in ("/viewer3d", "/viewer3d.html"):
             # 3D 查看器是独立页面（3Dmol.js ~0.5 MB）：主界面不需要它，
-            # 按需加载，避免拖慢启动。
+            # 按需加载，避免拖慢启动（见 ADR-012）。
             self._send_file(STATIC_DIR / "viewer3d.html")
             return
+        if route in ("/compare", "/compare.html"):
+            # 2D 结构式 vs 3D 构象 对照页（同样按需加载 3Dmol.js）
+            self._send_file(STATIC_DIR / "compare.html")
+            return
         if route.startswith("/static/"):
-            # 允许子目录：3Dmol.js 这类第三方库放在 static/vendor/ 下
+            # 允许子目录：3Dmol.js 这类第三方库放在 static/vendor/ 下（ADR-012）
             child = _safe_child(STATIC_DIR, unquote(route[len("/static/"):]),
                                 allow_dirs=True)
             if child is None:
@@ -265,9 +269,9 @@ class GuiHandler(BaseHTTPRequestHandler):
     def _resolve_write_dir(self, requested: Optional[str]) -> Optional[Path]:
         """把请求里的 ``dir`` 收口到允许写盘目录内；越界返回 ``None``。
 
-        此前 ``dir`` 直通 ``export_mod``，任何网页都能请求把文件写到文件系统任意位置
-        （已复现）。现在默认只能写 ``outdir``，要写别处必须在设置面板里显式加白名单
-        —— 那是用户自己的动作，不是第三方页面的。
+        审计 security-01：此前 ``dir`` 直通 ``export_mod``，任何网页都能请求把文件
+        写到文件系统任意位置（已复现）。现在默认只能写 ``outdir``，要写别处必须在
+        设置面板里显式加白名单——那是用户自己的动作，不是第三方页面的。
         """
         roots = self._write_roots()
         if not requested:
@@ -349,7 +353,7 @@ class GuiHandler(BaseHTTPRequestHandler):
         self._send_json(200, data)
 
     def _handle_render3d(self, payload: Dict[str, Any]) -> None:
-        """SMILES → 3D 构象（molblock）。只回几何数据，渲染在前端。
+        """SMILES → 3D 构象（molblock）。只回几何数据，渲染在前端（ADR-012）。
 
         成功：``{"ok":true, …Conformer3D.as_dict()}``；
         RDKit 缺失 → **503** + 安装指引（环境能力缺失，不是用户写错）；
@@ -440,7 +444,7 @@ class GuiHandler(BaseHTTPRequestHandler):
     def _handle_session(self, payload: Dict[str, Any]) -> None:
         """会话操作：newTab / closeTab / select / apply / undo / redo / addLayer / toggleLayer。
 
-        所有操作**只改内存中的文档，不落盘**（/2）；导出仍走 /api/export。
+        所有操作**只改内存中的文档，不落盘**（验收 1/2）；导出仍走 /api/export。
         """
         session = self._session()
         action = str(payload.get("action") or "")
@@ -542,7 +546,7 @@ class GuiHandler(BaseHTTPRequestHandler):
         self._send_json(200, data)
 
     def _handle_preview(self, payload: Dict[str, Any]) -> None:
-        """画布预览：不写用户输出目录（/2），1:1 绘制并封顶 1200 px。"""
+        """画布预览：不写用户输出目录（验收 1/2），1:1 绘制并封顶 1200 px。"""
         kind = str(payload.get("kind") or "")
         try:
             # dpi 缺省由 api.preview 决定（0 = 1:1 绘制）；传 150 反而会把预览缩小

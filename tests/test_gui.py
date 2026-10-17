@@ -108,6 +108,48 @@ class GuiHttpTests(unittest.TestCase):
             self.assertNotIn("cdn", text.lower())             # 不许有 CDN（离线要求）
             self.assertIn("viewer3d.js", text)
 
+    def test_compare_page_is_served(self):
+        """2D vs 3D 对照页：也是独立页面，同样自托管 3Dmol、无 CDN。"""
+        for path in ("/compare", "/compare.html"):
+            status, body = self.get(path)
+            self.assertEqual(status, 200, path)
+            text = body.decode("utf-8")
+            self.assertIn("3Dmol-min.js", text)
+            self.assertNotIn("cdn", text.lower())
+            self.assertIn("compare.js", text)
+            self.assertIn("compare.css", text)
+
+    def test_compare_page_reuses_existing_endpoints(self):
+        """对照页必须**复用**已有端点，不能偷偷加新 API。
+
+        这是架构约束（见 ARCHITECTURE §3「界面只有一份」+ 不重复实现）：
+        2D 走 /api/preview（不落盘），3D 走 /api/render3d（只回几何数据）。
+        """
+        _status, body = self.get("/static/compare.js")
+        js = body.decode("utf-8")
+        self.assertIn("/api/preview", js)
+        self.assertIn("/api/render3d", js)
+        # 不许自己解析 SMILES / 自己算坐标。注意 molblock **会**出现（那是 API 返回的
+        # 字段名，前端只是把它交给 3Dmol），所以只拦"自己算"的证据。
+        for forbidden in ("Compute2DCoords", "MolFromSmiles", "rdkit", "EmbedMolecule"):
+            self.assertNotIn(forbidden, js,
+                             "compare.js 里出现了 %r —— 几何应该在服务端算" % forbidden)
+
+    def test_compare_page_guards_against_races(self):
+        """连点"生成"时只能认最后一次（preview.png 是固定文件名，会互相覆盖）。"""
+        _status, body = self.get("/static/compare.js")
+        js = body.decode("utf-8")
+        self.assertIn("CMP.seq", js)
+        self.assertIn("seq !== CMP.seq", js)
+
+    def test_main_ui_links_to_compare(self):
+        """主界面必须有入口按钮，否则功能等于不存在。"""
+        _status, body = self.get("/")
+        html = body.decode("utf-8")
+        self.assertIn("open-compare", html)
+        _status, js = self.get("/static/app.js")
+        self.assertIn("openCompare", js.decode("utf-8"))
+
     def test_viewer3d_assets_are_local(self):
         for asset in ("/static/viewer3d.js", "/static/viewer3d.css"):
             status, body = self.get(asset)
@@ -327,7 +369,7 @@ class GuiHttpTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
-CJK = range(0x4E00, 0x9FFF)          # 汉字区间； 用它扫"残留中文"
+CJK = range(0x4E00, 0x9FFF)          # 汉字区间；验收 16 用它扫"残留中文"
 
 
 def has_cjk(text: str) -> bool:
@@ -335,7 +377,7 @@ def has_cjk(text: str) -> bool:
 
 
 class GuiSettingsAndI18nTests(unittest.TestCase):
-    """设置接口 / i18n 接口 / 英文模式无残留中文（、16）。"""
+    """设置接口 / i18n 接口 / 英文模式无残留中文（验收 15、16）。"""
 
     @classmethod
     def setUpClass(cls):
@@ -406,7 +448,7 @@ class GuiSettingsAndI18nTests(unittest.TestCase):
         self.assertEqual(zh["language"], "zh-CN")
         self.assertEqual(en["catalog"]["gui.render"], "Generate")
         self.assertEqual(zh["catalog"]["gui.render"], "生成")
-        # 两个目录 key 集合一致（ 的 HTTP 侧体现）
+        # 两个目录 key 集合一致（验收 17 的 HTTP 侧体现）
         self.assertEqual(set(en["catalog"]), set(zh["catalog"]))
 
     def test_figures_localised(self):
@@ -417,7 +459,7 @@ class GuiSettingsAndI18nTests(unittest.TestCase):
         self.assertTrue(has_cjk(zh["figures"][0]["title"]))
 
     def test_english_mode_has_no_residual_chinese(self):
-        """英文模式下，catalog 与参数表里不得出现汉字。"""
+        """验收 16：英文模式下，catalog 与参数表里不得出现汉字。"""
         _status, payload = self.get("/api/i18n/en")
         offenders = [(k, v) for k, v in payload["catalog"].items() if has_cjk(v)]
         self.assertEqual(offenders, [], "英文目录里还有中文：%s" % offenders[:5])
@@ -594,7 +636,7 @@ class GuiRequestBoundaryTests(unittest.TestCase):
 
 
 class GuiExportApiTests(unittest.TestCase):
-    """导出接口：写盘 / 已存在先确认且不改 mtime / 覆盖 / 不可写（、12、13）。"""
+    """导出接口：写盘 / 已存在先确认且不改 mtime / 覆盖 / 不可写（验收 7、12、13）。"""
 
     @classmethod
     def setUpClass(cls):
@@ -679,7 +721,7 @@ class GuiExportApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         status, data = self.post(self.base_payload(dir="/System/definitely-not-writable",
                                                    filename="nope.png"))
-        self.assertEqual(status, 400)
+        self.assertEqual(status, 400, data)
         self.assertFalse(data["ok"])
         self.assertIn("writable", data["error"].lower() + data["error"])
 
@@ -695,7 +737,7 @@ class GuiExportApiTests(unittest.TestCase):
 
 
 class GuiPreviewAndDraftTests(unittest.TestCase):
-    """阶段②：预览不落用户输出目录（/2）、草稿可存可读。"""
+    """阶段②：预览不落用户输出目录（验收 1/2）、草稿可存可读（验收 3）。"""
 
     @classmethod
     def setUpClass(cls):
@@ -778,7 +820,7 @@ class GuiPreviewAndDraftTests(unittest.TestCase):
 
 
 class GuiBatchApiTests(unittest.TestCase):
-    """批量导出的 GUI 接口（干跑 / 真跑 / 覆盖确认）。"""
+    """验收 14：批量导出的 GUI 接口（干跑 / 真跑 / 覆盖确认）。"""
 
     @classmethod
     def setUpClass(cls):

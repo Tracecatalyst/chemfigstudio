@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The 2D vs 3D comparison is now part of the app.** A new toolbar button opens `/compare`:
+  textbook condensed formula on the left, the same molecule's real 3D conformer on the right
+  (drag to rotate), plus an example dropdown (cyclohexane, benzene, alanine, aspirin,
+  caffeine, nicotine) with a note on what 2D cannot show.
+
+  **No new API was added** — 2D reuses `POST /api/preview` (nothing written to the output
+  directory) and 3D reuses `POST /api/render3d`, so the server gained only a page route and
+  zero duplicated rendering logic. The page also guards against double-clicks: `preview.png`
+  has a fixed filename, so a stale response is dropped rather than drawn.
+
+
 ### Fixed
 
 - **RDKit was installed but reported as missing.** The dependency search window went up

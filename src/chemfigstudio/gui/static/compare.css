@@ -1,0 +1,95 @@
+/* compare.css —— 2D 结构式 vs 3D 构象 对照页
+ *
+ * 复用 style.css 的 CSS 变量（深色模式自动跟随），只加本页的双栏布局。
+ * 独立文件的原因和 viewer3d.css 一样：主界面不需要这些样式，按需加载。
+ */
+
+.cmp-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap) var(--gap) 40px;
+}
+
+.cmp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 18px;
+}
+
+.cmp-controls .field { margin: 0; min-width: 220px; flex: 1 1 220px; }
+.cmp-controls .actions { margin: 0; }
+.cmp-controls .hint { flex-basis: 100%; margin: 0; }
+.cmp-controls .status,
+.cmp-controls .error { flex-basis: 100%; margin: 0; }
+
+.cmp-panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+@media (max-width: 900px) {
+  .cmp-panes { grid-template-columns: 1fr; }
+}
+
+.cmp-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+.pane-label {
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* 两栏必须等高 —— 2D 与 3D 放一起才好对照 */
+.cmp-shot,
+.cmp-viewer {
+  height: 320px;
+  background: #ffffff;                 /* 3D 背景固定白，导出帧才一致 */
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.cmp-shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
+
+.cmp-shot .empty,
+.cmp-viewer .empty {
+  position: absolute;
+  color: var(--muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.cmp-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.cmp-meta li { display: flex; gap: 6px; align-items: baseline; }
+.cmp-meta code { color: var(--ink); font-size: 12.5px; }
+
+.cmp-why {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.cmp-why:empty { display: none; }
