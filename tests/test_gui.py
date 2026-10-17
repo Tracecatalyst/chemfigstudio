@@ -108,6 +108,37 @@ class GuiHttpTests(unittest.TestCase):
             self.assertNotIn("cdn", text.lower())             # 不许有 CDN（离线要求）
             self.assertIn("viewer3d.js", text)
 
+    def test_preview_surfaces_valence_problems(self):
+        """超价分子必须通过 HTTP 把 warnings 交给前端（否则 GUI 上等于没检查）。
+
+        链路：figures.skeleton_figure → SaveReport.warnings → FigureResult.as_dict()
+              → /api/preview 的 JSON → 前端 showWarnings()（显示成 ⚠）
+        任意一环断了，用户都看不到"这个分子画错了"。
+        """
+        from chemfigstudio.skeleton import Skeleton
+
+        def preview(params):
+            status, payload = self.post("/api/preview",
+                                        {"kind": "skeleton", "params": params})
+            self.assertEqual(status, 200, payload)
+            self.assertTrue(payload.get("ok"), payload)
+            return payload.get("warnings") or []
+
+        # 干净分子：不能凭空冒出告警
+        clean = Skeleton.chain(4)
+        self.assertEqual(preview({"skeleton": clean.to_json()}), [])
+
+        # 一个碳连 5 根键：必须报出来
+        bad = Skeleton()
+        carbon = bad.add_atom("C", 100.0, 100.0)
+        for index in range(5):
+            hydrogen = bad.add_atom("H", 100.0 + 80.0 * (index + 1), 100.0)
+            bad.add_bond(carbon.id, hydrogen.id)
+        warnings = preview({"skeleton": bad.to_json()})
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("价键", warnings[0])
+        self.assertIn("5", warnings[0])
+
     def test_compare_page_is_served(self):
         """2D vs 3D 对照页：也是独立页面，同样自托管 3Dmol、无 CDN。"""
         for path in ("/compare", "/compare.html"):
