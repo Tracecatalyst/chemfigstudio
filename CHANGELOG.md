@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The README finally shows 3D** (`docs/images/compare.png`). It described three
+  sections of 3D — the viewer, the comparison page, the CLI `render3d` — with nine
+  pictures, and every one of them was 2D. The comparison page's whole point was invisible.
+
+  Getting a 3D picture out was the interesting part. Screenshots of this page time out
+  (five approaches, all `Page.captureScreenshot` variants). But 3Dmol's `pngURI()` is just
+  `canvas.toDataURL()` — the pixels can be taken in JS, entirely bypassing the screenshot
+  path. `scripts/make-3d-images.js` does that: POST `/api/render3d`, build a viewer, export
+  the canvas. No browser screenshot involved, so it is reproducible rather than a one-off
+  manual capture.
+
+
 ### Fixed
 
 - **`make gui` printed nothing, so "the website won't open".** The startup banner

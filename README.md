@@ -197,6 +197,11 @@ deliberately conservative so it does not cry wolf: valence is the **sum of bond 
 
 ## 2D vs 3D comparison
 
+![2D vs 3D](docs/images/compare.png)
+
+*The two halves that `/compare` puts side by side: the condensed formula this tool draws, and
+the same molecule's real 3D conformer (ball-and-stick, RDKit geometry, 3Dmol.js rendering).*
+
 `/compare` puts the condensed formula and the real 3D conformer of the same molecule side by
 side, several molecules at once, and lets you drag the 3D view. Each row can be exported as a
 single PNG containing both halves.

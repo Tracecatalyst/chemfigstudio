@@ -22,7 +22,14 @@ README 里原本有两张界面截图，来自初版。它们被删掉了，因�
 |---|---|---|
 | `docs/images/gui-dark.png` | `http://127.0.0.1:8765/` | ✅ 已有（v0.5.1，深色，路径已抹） |
 | `docs/images/gui-light.png` | 同上 | ⬜ 待补（亮色主题） |
-| `docs/images/compare.png` | `http://127.0.0.1:8765/compare` | ⬜ 待补（2D vs 3D 对照页） |
+| `docs/images/gui-light.png` | 同上（亮色） | ⬜ 待补 |
+| ~~`docs/images/compare.png`~~ | — | ✅ **已用 `pngURI()` 生成，不需要截图** |
+
+## 3D 图不需要截图
+
+3Dmol 的 `pngURI()` 就是 `canvas.toDataURL()` —— 在 JS 层直接拿像素，绕开
+`Page.captureScreenshot`（后者在这个页面上永远超时）。用
+`scripts/make-3d-images.js` 生成，可复现。
 
 可选第四张：`http://127.0.0.1:8765/viewer3d`（3D 构象查看器）。
 

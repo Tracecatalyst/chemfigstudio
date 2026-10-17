@@ -151,6 +151,11 @@ chemfigstudio convert --skeleton "CCO" -o ethanol.inchi   # InChI（需 RDKit）
 
 ## 2D vs 3D 对照
 
+![2D vs 3D](docs/images/compare.png)
+
+*`/compare` 并排显示的两半：本工具画出的缩合式，与同一个分子的真实 3D 构象
+（球棍模型，RDKit 生成几何、3Dmol.js 渲染）。*
+
 `/compare` 把同一分子的结构式与真实 3D 构象并排放，可以一次看多个，右边能拖动旋转。
 每一行都能导出成一张包含两半的 PNG。
 
