@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **A demo GIF at the top of both READMEs** (`docs/images/demo.gif`, 311 KB, 9.5 s).
+  Every other picture in the README shows *what a figure looks like*; none of them
+  showed the thing that actually sells this tool — changing one parameter and
+  watching the figure follow. Three acts: skeleton carbon count 2→12, benzene with
+  `rings` off/on (Kekulé vs circle), then four real molecules imported from SMILES
+  (ethanol, aspirin, caffeine, alanine with its wedge bond).
+
+  Reproducible: `scripts/make-demo-gif.py` / `make demo-gif`. The frames are
+  rendered by the drawing code itself — no browser, no screen recording, so the
+  result cannot drift away from what the tool actually outputs.
+
+- **Repository metadata** — the description, 14 topics and homepage were all empty,
+  which meant the repository was effectively unindexed: searching
+  `structural formula png` returned 0 results. After filling them in, two of those
+  searches now return this repository first, and `topic:structure-drawing` has
+  exactly one member.
+
+
 ## [0.5.1] - 2026-10-18
 
 ### Added

@@ -3,6 +3,11 @@
 **Condensed-formula chemistry figures, generated locally.** No network, no browser
 engine, no third-party drawing app — one small Python package and Pillow.
 
+![chemfigstudio demo](docs/images/demo.gif)
+
+*Change a parameter, the figure follows. Then: an aromatic ring drawn as a circle
+instead of Kekulé bonds, and real molecules imported straight from SMILES.*
+
 ![chemfigstudio GUI](docs/images/gui-light.png)
 
 *Local web GUI (1440×900). Dark mode ships too — see `docs/images/gui-dark.png`.*

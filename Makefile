@@ -16,6 +16,7 @@ help:
 	@echo "make test      - 跑全部单元测试（core / figures / cli / gui）"
 	@echo "make check-privacy - 公开前隐私自检（署名/内网地址/路径/凭据）"
 	@echo "make browser-check - 真浏览器回归（需 ego-browser）"
+	@echo "make demo-gif  - 重新生成 README 的演示 GIF"
 	@echo "make figures   - 用 CLI 生成 4 张示例图到 $(OUT)/"
 	@echo "make gui       - 启动本地网页 GUI（默认 http://127.0.0.1:8765）"
 	@echo "make app       - 打开 macOS 原生应用（首次会自动编译）"
@@ -45,6 +46,10 @@ compare:
 check-privacy:
 	@# 公开前自检：commit 署名 / 内网地址 / 家目录 / 凭据 / 内部编号
 	@bash scripts/check-privacy.sh
+
+demo-gif:
+	@# 重新生成 README 顶部的演示 GIF（docs/images/demo.gif）
+	@PYTHONPATH=$(SRC) $(PY) scripts/make-demo-gif.py
 
 figures:
 	@mkdir -p $(OUT)

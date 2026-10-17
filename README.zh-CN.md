@@ -3,6 +3,11 @@
 **在本地生成缩合式（示性式）化学插图。** 不联网、不用浏览器引擎、不依赖第三方绘图软件 ——
 只有一个小 Python 包和 Pillow。
 
+![chemfigstudio demo](docs/images/demo.gif)
+
+*改一个参数，图立刻跟着变。后面两段分别是：芳香环画成圆圈（而不是 Kekulé 双键），
+以及直接从 SMILES 导入的真实分子。*
+
 ![chemfigstudio 界面](docs/images/gui-light.png)
 
 *本地网页界面（1440×900）。另有深色模式：`docs/images/gui-dark.png`。*
