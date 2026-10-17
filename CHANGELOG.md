@@ -7,6 +7,26 @@
 
 ### Added
 
+- **Aromatic rings rendered as circles** — new `rings` parameter on the `skeleton` figure,
+  **off by default**. When enabled a qualifying aromatic ring is drawn as a circle inside the
+  ring, and its bonds are drawn single (drawing the circle *on top of* alternating double
+  bonds says "aromatic" twice, which is simply wrong — the first version did that).
+
+  The test is a zero-dependency topological heuristic: ring size 5–7, and every ring atom
+  takes part in at least one double bond (inside **or outside** the ring). The "outside"
+  part is what makes naphthalene work: its two six-membered rings share the bridgehead
+  carbons, so only one ring is fully alternating.
+
+  Measured: benzene / pyridine / naphthalene (both rings) / aspirin qualify; pyrrole, furan,
+  thiophene, cyclopentadiene, cyclohexene, cyclohexadiene and cyclooctatetraene do not.
+
+  Off by default for two reasons: it is the byte-identical regression baseline, and this is a
+  heuristic rather than a real aromaticity calculation — so it should not make chemical
+  judgements on the user's behalf.
+
+
+### Added
+
 - **Structure export (ADR-015)** — the tool could read real molecules but had no way out.
   Three targets now share one `Skeleton → molblock` path:
 

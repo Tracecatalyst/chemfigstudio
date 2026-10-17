@@ -547,3 +547,138 @@ class ValenceTests(unittest.TestCase):
                 str(Path(tmp) / "ok.png"), skeleton=Skeleton.chain(5).to_json(),
                 formats=("png",), dpi=150)
         self.assertEqual(result.warnings, [])
+
+
+class AromaticRingTests(unittest.TestCase):
+    """芳香环圆圈（可选，默认关闭）。
+
+    判定是**拓扑启发式**（零依赖）：环长 5–7，且环内每个原子至少参与 1 根双键
+    （环内或环外都算 —— 否则萘只能有半个环满足）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from chemfigstudio import smiles as smiles_mod
+        cls.available = smiles_mod.rdkit_available()
+
+    def setUp(self):
+        if not self.available:
+            self.skipTest("没装 RDKit（要从 SMILES 造分子）")
+
+    @staticmethod
+    def rings_of(smiles):
+        from chemfigstudio.structure import from_smiles
+        return from_smiles(smiles).skeleton.aromatic_rings()
+
+    # ------------------------------------------------------------ 判定
+
+    def test_benzene_has_one_ring(self):
+        self.assertEqual(len(self.rings_of("c1ccccc1")), 1)
+
+    def test_pyridine_has_one_ring(self):
+        self.assertEqual(len(self.rings_of("c1ccncc1")), 1)
+
+    def test_naphthalene_has_two_rings(self):
+        """萘的两个环只有一个是完全交替的，但两个都该画 —— 见 aromatic_rings 的说明。"""
+        self.assertEqual(len(self.rings_of("c1ccc2ccccc2c1")), 2)
+
+    def test_cyclopentadiene_is_not_aromatic(self):
+        """五元环但有一个 sp3 碳不参与双键 → 不是芳香环 → 不画。"""
+        self.assertEqual(self.rings_of("C1=CC=CC1"), [])
+
+    def test_pyrrole_stays_kekule(self):
+        """吡咯的五元环里杂原子不带双键 → 不画圆圈（课本也多用 Kekulé 式）。"""
+        self.assertEqual(self.rings_of("c1cc[nH]c1"), [])
+
+    def test_cyclooctatetraene_is_not_drawn(self):
+        """8 元环超出窗口，而且它本来就是盆式非芳香。"""
+        self.assertEqual(self.rings_of("C1=CC=CC=CC=C1"), [])
+
+    def test_cyclohexane_and_cyclohexadiene_are_not_aromatic(self):
+        for smiles in ("C1CCCCC1", "C1=CC=CCC1"):
+            with self.subTest(smiles=smiles):
+                self.assertEqual(self.rings_of(smiles), [])
+
+    def test_aspirin_ring_is_found(self):
+        self.assertEqual(len(self.rings_of("CC(=O)Oc1ccccc1C(=O)O")), 1)
+
+    # ------------------------------------------------------------ 渲染
+
+    def _render(self, skeleton, name, **kwargs):
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import figures
+
+        target = Path(self.__dict__.setdefault("_dir", tempfile.mkdtemp())) / name
+        return figures.skeleton_figure(str(target), skeleton=skeleton,
+                                       formats=("png",), dpi=150, **kwargs)
+
+    def test_rings_off_by_default(self):
+        """默认必须保持 Kekulé —— 这是既有输出风格，也是逐字节回归的基线。"""
+        from chemfigstudio.structure import from_smiles
+        from chemfigstudio import figures
+        import tempfile
+        from pathlib import Path
+
+        payload = from_smiles("c1ccccc1").skeleton.to_json()
+        with tempfile.TemporaryDirectory() as tmp:
+            default = figures.skeleton_figure(str(Path(tmp) / "a.png"),
+                                              skeleton=payload, formats=("png",), dpi=150)
+            off = figures.skeleton_figure(str(Path(tmp) / "b.png"),
+                                          skeleton=payload, formats=("png",), dpi=150,
+                                          rings=False)
+            # 必须在临时目录还活着时读 —— 否则文件已经没了（这个测试踩过）
+            self.assertEqual(Path(default.report.outputs["png"]).read_bytes(),
+                             Path(off.report.outputs["png"]).read_bytes())
+
+    def test_rings_actually_change_the_picture(self):
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import figures
+        from chemfigstudio.structure import from_smiles
+
+        payload = from_smiles("c1ccccc1").skeleton.to_json()
+        with tempfile.TemporaryDirectory() as tmp:
+            plain = figures.skeleton_figure(str(Path(tmp) / "a.png"), skeleton=payload,
+                                            formats=("png",), dpi=150)
+            circled = figures.skeleton_figure(str(Path(tmp) / "b.png"), skeleton=payload,
+                                              formats=("png",), dpi=150, rings=True)
+            self.assertNotEqual(Path(plain.report.outputs["png"]).read_bytes(),
+                                Path(circled.report.outputs["png"]).read_bytes())
+
+    def test_ring_bonds_are_drawn_as_single(self):
+        """开圆圈时环内不能再画双键 —— 那等于把芳香性说了两遍（化学上错误）。
+
+        用白盒断言（探针 _draw_bond）而不是比对像素：想验的是"传下去的是单键"
+        这个行为，像素差异会被圆圈本身干扰，说不清。
+        """
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        from chemfigstudio import figures
+        from chemfigstudio.structure import from_smiles
+
+        payload = from_smiles("c1ccccc1").skeleton.to_json()
+        seen = []
+        original = figures._draw_bond
+
+        def spy(draw, first, second, bond):
+            seen.append(bond.order)
+            return original(draw, first, second, bond)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(figures, "_draw_bond", spy):
+                figures.skeleton_figure(str(Path(tmp) / "c.png"), skeleton=payload,
+                                        formats=("png",), dpi=150, rings=True)
+
+        self.assertNotIn(2, seen, "开了圆圈却还在画双键：%s" % seen)
+        self.assertEqual(seen, [1] * 6, "苯环的 6 根键都该按单键画：%s" % seen)
+
+    def test_api_exposes_the_rings_parameter(self):
+        from chemfigstudio import api
+        spec = api.FIGURES["skeleton"]
+        names = [param.name for param in spec.params]
+        self.assertIn("rings", names)

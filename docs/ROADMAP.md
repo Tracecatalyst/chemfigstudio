@@ -31,6 +31,7 @@
 | — | 默认就能找到 RDKit（搜索深度 4→8） | 金 | `CHANGELOG.md` |
 | ③ | **价键检查**（超价报警，欠价不报、电荷修正、未知元素跳过） | 金 | `skeleton.py::Skeleton.valence_errors` · `tests/test_skeleton.py::ValenceTests` |
 | ④ | **结构导出**：molblock（零依赖）/ 规范 SMILES / InChI | 银 | ADR-015 · `structure.py::to_molblock` · `cli.py::_cmd_convert` |
+| — | **芳香环圆圈**（`rings` 参数，默认关；拓扑启发式） | 银 | `skeleton.py::Skeleton.aromatic_rings` · `figures.py::_draw_aromatic_circles` |
 
 核实命令：
 
@@ -45,11 +46,6 @@ ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
 ## 待办（按建议顺序，逐项勾掉）
 
 ### 金 —— 让"读进来的分子"不出错
-
-- [ ] **芳香环画成圆圈**（现在一律 Kekulé 交替双键）
-  - 现状：`figures.py` 无 aromatic/circle 相关代码
-  - 注意：Kekulé 与圆圈**化学等价**，但课本两种都画；要按用户选择切换
-  - 风险：会改渲染输出 → 必须逐字节比对 6 张示例图
 
 ### 银 —— 让"画出来的分子"能交换
 

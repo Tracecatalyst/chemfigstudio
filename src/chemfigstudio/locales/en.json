@@ -237,6 +237,8 @@
   "param.n_carbons.label": "Number of carbon atoms",
   "param.name.help": "Leave blank to name it from the carbon count.",
   "param.name.label": "Name (title)",
+  "param.rings.help": "Draw qualifying aromatic rings as a circle instead of Kekulé alternating double bonds. The test is a topological heuristic: benzene/pyridine/naphthalene qualify, pyrrole/furan/thiophene and cyclopentadiene do not.",
+  "param.rings.label": "Aromatic circles",
   "param.show_delta_h.label": "Show the ΔHc column",
   "param.show_percent.label": "Show class/literature percentage",
   "param.skeleton.help": "Leave empty for a default chain. You can also paste a structure: SMILES (e.g. c1ccccc1O, needs RDKit) or a molblock/SDF (no RDKit needed) — atoms and stereo bonds are laid out for you.",

@@ -237,6 +237,8 @@
   "param.n_carbons.label": "碳原子数",
   "param.name.help": "留空则用碳数自动命名。",
   "param.name.label": "名称（标题）",
+  "param.rings.help": "开启后把满足条件的芳香环画成圈内圆圈；关闭（默认）保持 Kekulé 交替双键。判定是拓扑启发式：苯/吡啶/萘会画，吡咯/呋喃/噻吩与环戊二烯不画。",
+  "param.rings.label": "芳香环画圆圈",
   "param.show_delta_h.label": "显示 ΔHc 列",
   "param.show_percent.label": "显示班级/文献百分比",
   "param.skeleton.help": "留空 = 默认直链。也可以直接粘贴结构：SMILES（如 c1ccccc1O，需要 RDKit）或 molblock/SDF（不需要 RDKit），会自动摆好原子与立体键。",

@@ -215,6 +215,71 @@ class Skeleton:
         ys = [a.y for a in self.atoms]
         return (min(xs), min(ys), max(xs), max(ys))
 
+    def aromatic_rings(self) -> List[List[str]]:
+        """找出应当画成**圆圈**的芳香环（Kekulé 式的环）。
+
+        判定规则（纯拓扑，零依赖）：
+
+        * 环长 5–7；
+        * **环内每个原子都至少参与 1 根双键**（环内或环外都算）。
+
+        为什么要求"至少一根"而不是"环内恰好一根"：萘的两个六元环共享两个桥头碳，
+        其中只有一个环的双键是完全交替的（3 根），另一个环内只有 2 根双键 ——
+        但那个环的每个原子都在**环外**（桥头碳在另一个环里）参与双键。
+        按"恰好一根"判，萘只会有一个环画圆圈，视觉上很怪。
+
+        这条规则的效果（都是刻意的）：
+        * 苯 / 吡啶 / **萘（两个环都画）** ✅
+        * 吡咯 / 呋喃 / 噻吩 ❌ 不画 —— 五元杂环的杂原子不带双键，课本也多用 Kekulé 式；
+        * 环戊二烯 / 环己烯 / 环己二烯 ❌ 不画（有 sp3 碳不带双键，不是芳香）；
+        * 环辛四烯 ❌ 不画（8 元环超出窗口，而且它本来就是盆式非芳香）。
+
+        ⚠️ **局限**：这是拓扑启发式，不是真正的芳香性计算。理论上存在
+        "每个原子都带 1 根双键却不芳香"的环，那种环会被误画圆圈。要精确判定
+        得上 RDKit 的 ``GetIsAromatic``，但本工具保持零依赖 —— 宁可接受这个
+        极少数误判，也不让"画个圆圈"变成必须装 RDKit 的功能。
+        """
+        adjacency: Dict[str, List[str]] = {}
+        for bond in self.bonds:
+            adjacency.setdefault(bond.a, []).append(bond.b)
+            adjacency.setdefault(bond.b, []).append(bond.a)
+
+        rings: Dict[frozenset, List[str]] = {}
+
+        def walk(start: str, path: List[str], seen: set) -> None:
+            if len(path) > 7:
+                return
+            for neighbour in adjacency.get(path[-1], ()):
+                if neighbour == start and len(path) >= 5:
+                    rings.setdefault(frozenset(path), list(path))
+                elif neighbour not in seen and len(path) < 7:
+                    seen.add(neighbour)
+                    path.append(neighbour)
+                    walk(start, path, seen)
+                    path.pop()
+                    seen.discard(neighbour)
+
+        for atom_id in adjacency:
+            walk(atom_id, [atom_id], {atom_id})
+
+        # 只保留"每个原子恰好 1 根环内双键"的环
+        aromatic: List[List[str]] = []
+        for atom_set, path in rings.items():
+            inside = [bond for bond in self.bonds
+                      if bond.a in atom_set and bond.b in atom_set]
+            if not any(bond.order == 2 for bond in inside):
+                continue                      # 环上一根双键都没有，肯定不是芳香环
+            # 每个环原子都要在环内**或环外**参与至少一根双键
+            has_double: set = set()
+            for bond in self.bonds:
+                if bond.order == 2 and bond.a in atom_set:
+                    has_double.add(bond.a)
+                if bond.order == 2 and bond.b in atom_set:
+                    has_double.add(bond.b)
+            if all(atom in has_double for atom in atom_set):
+                aromatic.append(path)
+        return aromatic
+
     def valence_errors(self) -> List[ValenceIssue]:
         """找出**超价**的原子：Σ键级 > 价键上限。
 

@@ -315,7 +315,7 @@ def ensure_plugins_loaded() -> None:
 
 
 def preview_dir() -> Path:
-    """预览缓存目录（在配置目录里，**不是**用户输出目录 —— /2）。"""
+    """预览缓存目录（在配置目录里，**不是**用户输出目录 —— 验收 1/2）。"""
     return settings_mod.config_dir() / "preview"
 
 
@@ -404,7 +404,7 @@ def render(kind: str, out: Optional[str] = None, outdir: Optional[Path] = None,
     result = spec.runner(path, formats=tuple(wanted), dpi=dpi,
                          transparent=transparent, **clean)
 
-    # 300 dpi 时输出最长边应达 ~3000 px。
+    # 验收 8：300 dpi 时输出最长边应达 ~3000 px。
     # 裁切后的实际内容比画布小，所以量一次再按比例重绘一遍（真放大，非插值）。
     if dpi and "png" in wanted and result.report.outputs.get("png"):
         from . import core as core_mod
@@ -478,11 +478,12 @@ def _spec_esterification() -> FigureSpec:
 
 
 def _spec_skeleton() -> FigureSpec:
-    def run(out, skeleton, title, formats=("png",), dpi=None, transparent=False,
-            scale_override=None, **_ignored) -> FigureResult:
+    def run(out, skeleton, title, rings=False, formats=("png",), dpi=None,
+            transparent=False, scale_override=None, **_ignored) -> FigureResult:
         return figures.skeleton_figure(out, skeleton=skeleton or "", title=title or None,
                                        formats=formats, dpi=dpi, transparent=transparent,
-                                       scale_override=scale_override)
+                                       scale_override=scale_override,
+                                       rings=bool(rings))
 
     return FigureSpec(
         kind="skeleton",
@@ -492,6 +493,8 @@ def _spec_skeleton() -> FigureSpec:
             ParamSpec("skeleton", "str", "param.skeleton.label", default="",
                       help="param.skeleton.help"),
             ParamSpec("title", "str", "param.title.label", default=""),
+            ParamSpec("rings", "bool", "param.rings.label", default=False,
+                      help="param.rings.help"),
         ),
         default_filename="figure.skeleton.filename",
         runner=run,

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -520,7 +522,8 @@ def esterification_figure(out, acid_carbons: int = 2, alcohol_carbons: int = 1,
 def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
                     *, formats: Sequence[str] = ("png",), dpi: Optional[int] = None,
                     transparent: bool = False,
-                    scale_override: Optional[float] = None) -> FigureResult:
+                    scale_override: Optional[float] = None,
+                    rings: bool = False) -> FigureResult:
     """画一张可编辑骨架（阶段⑤）：原子用圆点 + 富文本标签，键用线段（双键画两条）。
 
     ``skeleton`` 是 :class:`chemfigstudio.skeleton.Skeleton` 的 JSON；留空则用默认直链。
@@ -559,11 +562,24 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
     # 逐分子绘制（多分子时按 Scene.offsets() 纵向堆叠）
     for index, data in enumerate(scene.molecules):
         dx, dy = offsets[index]
+        # 画圆圈时，环内的键要按**单键**画：圆圈本身已经表达了芳香性，
+        # 再叠一层交替双键就是"双重表示"，化学上错误（也丑）。
+        aromatic_atoms: set = set()
+        if rings:
+            for ring in data.aromatic_rings():
+                aromatic_atoms.update(ring)
+
         for bond in data.bonds:
             first, second = data.atom(bond.a), data.atom(bond.b)
             if first is None or second is None:
                 continue
-            _draw_bond(draw, place(first, dx, dy), place(second, dx, dy), bond)
+            drawn = bond
+            if aromatic_atoms and bond.a in aromatic_atoms and bond.b in aromatic_atoms:
+                drawn = replace(bond, order=1, wedge="none")
+            _draw_bond(draw, place(first, dx, dy), place(second, dx, dy), drawn)
+        if rings:
+            _draw_aromatic_circles(draw, data, place, dx, dy)
+
         for atom in data.atoms:
             _draw_atom(draw, place(atom, dx, dy), atom)
         if index < len(labels) and labels[index]:
@@ -588,6 +604,30 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
                                    % issue.text())
 
     return FigureResult("skeleton", report)
+
+
+def _draw_aromatic_circles(draw, skeleton, place, dx: float, dy: float) -> None:
+    """把芳香环画成圈内的圆圈（Kekulé 式的另一种写法）。
+
+    只在 ``rings=True`` 时调用 —— **默认保持 Kekulé 交替双键**，因为那才是
+    本工具既有的输出风格，也是逐字节回归的基线。
+
+    半径取"中心到顶点平均距离"的 0.55：太小会贴着键、太大会盖住原子标签。
+    """
+    import math
+
+    for ring in skeleton.aromatic_rings():
+        points = [place(skeleton.atom(atom_id), dx, dy)
+                  for atom_id in ring if skeleton.atom(atom_id) is not None]
+        if len(points) < 5:
+            continue
+        cx = sum(point[0] for point in points) / len(points)
+        cy = sum(point[1] for point in points) / len(points)
+        reach = sum(math.hypot(point[0] - cx, point[1] - cy)
+                    for point in points) / len(points)
+        radius = reach * 0.55
+        draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
+                     outline=INK, width=3)
 
 
 def _draw_bond(draw, first: Tuple[float, float], second: Tuple[float, float], bond) -> None:
