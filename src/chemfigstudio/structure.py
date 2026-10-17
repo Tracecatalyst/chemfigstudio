@@ -100,7 +100,9 @@ def _parse_charges(lines: List[str], counts_index: int) -> Dict[int, int]:
 
 def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
                          keep_hydrogens: bool = False,
-                         known_stereo: Optional[Sequence[int]] = None) -> Structure2D:
+                         known_stereo: Optional[Sequence[int]] = None,
+                         hydrogens: Optional[Dict[int, int]] = None,
+                         allow_unknown_elements: bool = False) -> Structure2D:
     """V2000 molblock → 可编辑骨架（纯文本解析，零依赖）。
 
     :param bond_px:         一根标准键的像素长度（坐标会整体缩放到这个尺度）
@@ -154,6 +156,17 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
         raw.append((x, y, symbol if symbol in ELEMENTS else "C",
                     charges.get(index + 1, 0)))
 
+    # 不认识的元素**不能静默换成碳** —— 那是另一个分子。
+    # 审计 F2 实测：`C[Si](C)(C)C`（TMS）会导出成新戊烷、`[Na+].[Cl-]` 导出成
+    # 甲基正离子 + 氯离子，都返回 ok:true。宁可报错，也不能悄悄改变化学式。
+    if skipped and not allow_unknown_elements:
+        unique = sorted({symbol for symbol in skipped if symbol})
+        raise RenderError(
+            "这个结构里有本工具不支持的元素：%s。画出来会变成另一个分子，所以拒绝。\n"
+            "可选：装 RDKit（支持的元素多得多），或者用 --allow-unknown-elements "
+            "强行按碳处理（那会改变化学式，导出的文件不代表原分子）。"
+            % ", ".join(unique))
+
     bonds: List[Bond] = []
     for index in range(bond_count):
         line = lines[4 + atom_count + index]
@@ -183,7 +196,7 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
     skeleton = Skeleton(atoms=atoms, bonds=bonds, title=title)
     _normalise_wedges(skeleton, stereo={"m%d" % i for i in (known_stereo or [])})
     _scale_and_flip(skeleton, bond_px)
-    _assign_default_labels(skeleton)
+    _assign_default_labels(skeleton, hydrogens=hydrogens)
 
     notes: List[str] = []
     if dropped:
@@ -383,7 +396,8 @@ def _scale_and_flip(skeleton: Skeleton, bond_px: float) -> None:
 _DEFAULT_VALENCE = {"C": 4, "N": 3, "O": 2, "S": 2, "P": 3, "B": 3}
 
 
-def _assign_default_labels(skeleton: Skeleton) -> None:
+def _assign_default_labels(skeleton: Skeleton,
+                           hydrogens: Optional[Dict[int, int]] = None) -> None:
     """给"需要写出来的"原子填默认标签 —— **按价键环境推**，不是按元素查表。
 
     为什么要按环境：同一个元素在分子里的氢数不同。咖啡因里有三个氮，两个是
@@ -405,10 +419,15 @@ def _assign_default_labels(skeleton: Skeleton) -> None:
             order_sum[end] = order_sum.get(end, 0) + bond.order
             degree[end] = degree.get(end, 0) + 1
 
+    # 原子 id → molblock 里的 1-based 序号（权威氢数是按那个口径给的）
+    order_index = {atom.id: position + 1 for position, atom in enumerate(skeleton.atoms)}
+
     for atom in skeleton.atoms:
         if not atom.label:
             if atom.element == "C":
-                atom.label = "CH_{3}" if degree.get(atom.id, 0) <= 1 else ""
+                atom.label = _carbon_label(atom, order_sum.get(atom.id, 0),
+                                           degree.get(atom.id, 0),
+                                           hydrogens, order_index.get(atom.id))
             else:
                 atom.label = _hetero_label(atom, order_sum.get(atom.id, 0),
                                            degree.get(atom.id, 0))
@@ -416,6 +435,38 @@ def _assign_default_labels(skeleton: Skeleton) -> None:
             sign = "+" if atom.charge > 0 else "-"
             magnitude = "" if abs(atom.charge) == 1 else str(abs(atom.charge))
             atom.label = (atom.label or atom.element) + "^{%s%s}" % (sign, magnitude)
+
+
+def _carbon_label(atom: Atom, bond_order_sum: int, degree: int,
+                  hydrogens: Optional[Dict[int, int]],
+                  index: Optional[int]) -> str:
+    """碳的标签：写几个氢**必须看键级与电荷**，不能只看连了几根键。
+
+    踩过（审计 F1）：早期只判断 ``degree <= 1`` 就写 ``CH_{3}``，于是
+    乙烯画成 ``CH_{3}=CH_{3}``、甲烷画成 ``CH_{3}``、甲醛画成 ``CH_{3}=O`` ——
+    图上写着碳有 5 根键，而**没有任何闸门能拦**（价键检查只看键级之和，
+    不看"画出来的文字声称了几根键"）。
+
+    氢数来源优先级：
+    1. ``hydrogens``（RDKit 的 ``GetTotalNumHs``）—— 权威，SMILES 那条路走这个；
+       molblock 没有隐含氢信息，所以那条路用下面的公式兜底。
+    2. ``H = 4 - Σ(键级) - |电荷|`` —— 碳正/碳负离子都是"三根键"，
+       所以电荷让可用的键数少一根（而不是多一根，那是 N⁺ 的规则）。
+    """
+    if hydrogens is not None and index is not None and index in hydrogens:
+        count = int(hydrogens[index])
+    else:
+        count = max(0, 4 - int(bond_order_sum) - abs(int(atom.charge)))
+    count = max(0, count)
+
+    if degree >= 2:
+        # 骨架碳：结构式里碳是线，氢隐含，不写字
+        return ""
+    if count <= 0:
+        return "C"                     # 裸碳（CCl4 的核心、碳正离子无氢等）
+    if count == 1:
+        return "CH"
+    return "CH_{%d}" % count
 
 
 def _hetero_label(atom: Atom, bond_order_sum: int, degree: int) -> str:
@@ -464,6 +515,25 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
     if mol is None:
         raise RenderError("RDKit 无法解析 SMILES %r（写法有误？）" % smiles)
 
+    # 同位素与自由基：我们的模型里**没有这两类信息**（Atom 只有 element/charge/
+    # wedge），Accept 了就等于静默丢弃。审计 F2 实测：
+    #   [13CH4] → C（丢了 ¹³C 标记）、[2H]C → C（丢了氘）、[CH3] → C（自由基变中性）
+    # 宁可拒绝，也不能导出一个化学上不同的分子。
+    isotopes = sorted({atom.GetIsotope() for atom in mol.GetAtoms()
+                       if atom.GetIsotope()})
+    radicals = [atom for atom in mol.GetAtoms() if atom.GetNumRadicalElectrons()]
+    if isotopes or radicals:
+        reasons = []
+        if isotopes:
+            reasons.append("同位素标记（%s）"
+                           % ", ".join(str(mass) for mass in isotopes))
+        if radicals:
+            reasons.append("自由基（%d 个原子）" % len(radicals))
+        raise RenderError(
+            "这个结构带有%s，本工具的骨架模型里没有这两类信息 —— "
+            "画出来会丢掉它们（等于另一个分子），所以拒绝。\n"
+            "可选：先去掉这些标记再导入，或者直接用别的方法处理这个结构。" % "、".join(reasons))
+
     # 结构式不画显式氢（否则每个 CH 上都挂着白点、楔形会指到氢上）——
     # 立体信息由楔形键本身承载，不依赖氢原子是否显式存在。
     mol = Chem.AddHs(mol) if keep_hydrogens else Chem.RemoveHs(mol)
@@ -507,9 +577,11 @@ def looks_like_molblock(text: str) -> bool:
 
 
 def from_molblock(text: str, *, bond_px: float = DEFAULT_BOND_PX,
-                  keep_hydrogens: bool = False) -> Structure2D:
+                  keep_hydrogens: bool = False,
+                  allow_unknown_elements: bool = False) -> Structure2D:
     """V2000 molblock / SDF 的**第一条记录** → 可编辑骨架。"""
     # SDF 是多条记录用 "$$$$" 分隔的；只取第一条
     first = str(text).split("$$$$")[0]
     return molblock_to_skeleton(first, bond_px=bond_px,
-                                keep_hydrogens=keep_hydrogens)
+                                keep_hydrogens=keep_hydrogens,
+                                allow_unknown_elements=allow_unknown_elements)

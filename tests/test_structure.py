@@ -198,10 +198,24 @@ class MolblockParsingTests(unittest.TestCase):
             structure.from_molblock(block)
         self.assertIn("不存在的原子", str(ctx.exception))
 
-    def test_unknown_element_becomes_carbon_with_a_note(self):
+    def test_unknown_element_is_rejected(self):
+        """不认识的元素**不能静默变成碳** —— 那是另一个分子（审计 F2）。
+
+        改之前：`C[Si](C)(C)C`（TMS）会导出成新戊烷、`[Na+].[Cl-]` 导出成
+        甲基正离子 + 氯离子，而且都返回成功。宁可画不出来，也不能悄悄改变化学式。
+        """
         block = ETHANOL_BLOCK.replace("    0.0000    0.0000    0.0000 C",
                                       "    0.0000    0.0000    0.0000 Xx")
-        result = structure.from_molblock(block)
+        with self.assertRaises(RenderError) as ctx:
+            structure.from_molblock(block)
+        self.assertIn("不支持的元素", str(ctx.exception))
+        self.assertIn("Xx", str(ctx.exception))
+
+    def test_allow_unknown_elements_is_an_escape_hatch(self):
+        """显式要求时可以按碳处理 —— 但必须留下记录，说明这是妥协。"""
+        block = ETHANOL_BLOCK.replace("    0.0000    0.0000    0.0000 C",
+                                      "    0.0000    0.0000    0.0000 Xx")
+        result = structure.from_molblock(block, allow_unknown_elements=True)
         self.assertTrue(result.skipped_elements)
         self.assertTrue(any("不认识" in note for note in result.notes))
 

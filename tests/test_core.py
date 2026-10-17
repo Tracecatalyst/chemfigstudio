@@ -82,8 +82,13 @@ class CoreKnowsNoChemistryTests(unittest.TestCase):
     """
 
     #: 这些字样只允许出现在 figures.py（或插件）里
-    CHEMISTRY_IN_CODE = ("CH_{3}", "CH_{2}", "H_{2}", "OH", "2 C-H", "3 C-H",
-                         "孤对电子", "羟基", "醇")
+    #: 词表刻意比"刚好覆盖当前代码"更宽 —— 审计 F4 指出，旧表只有 10 个词，
+    #: 往里注入 ``NH_{2}`` / ``C=O`` 之类的化学式仍会全绿。
+    CHEMISTRY_IN_CODE = (
+        "CH_{3}", "CH_{2}", "H_{2}", "OH", "NH_{2}", "COOH", "C=O", "C-H",
+        "2 C-H", "3 C-H", "孤对电子", "羟基", "羰基", "羧基",
+        "醇", "醛", "酮", "酯", "烷烃", "烯烃", "炔烃",
+    )
 
     @staticmethod
     def _code_strings(path):
@@ -105,9 +110,14 @@ class CoreKnowsNoChemistryTests(unittest.TestCase):
                     docstrings.add(id(body[0].value))
         found = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                if id(node) not in docstrings:
-                    found.append(node.value)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+                if id(node) in docstrings:
+                    continue
+                value = node.value
+                if isinstance(value, bytes):
+                    # 审计 F4：旧版只扫 str，`b"OH"` 这种字节串能溜过去
+                    value = value.decode("utf-8", "replace")
+                found.append(value)
             elif isinstance(node, ast.Name):
                 found.append(node.id)
             elif isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
@@ -138,6 +148,24 @@ class CoreKnowsNoChemistryTests(unittest.TestCase):
                              "core.py 的代码里出现了化学字样 %r（%r）—— "
                              "标签应当由调用方（figures.chain_style）注入"
                              % (term, hits[:3]))
+
+    def test_the_guard_would_catch_an_injection(self):
+        """守卫自证：往扫描结果里塞违禁词，它必须变红。
+
+        只验证"当前代码是干净的"是**假绿** —— 守卫完全可能根本没在检查
+        （审计 F4 就是这么发现旧守卫能被绕过的）。这里把注入路径也测掉。
+        """
+        from unittest import mock
+
+        real = CoreKnowsNoChemistryTests._code_strings
+
+        def polluted(path):
+            return list(real(path)) + ["NH_{2}", "C=O", b"OH"]
+
+        with mock.patch.object(CoreKnowsNoChemistryTests, "_code_strings",
+                               staticmethod(polluted)):
+            with self.assertRaises(AssertionError):
+                self.test_core_source_has_no_chemistry_vocabulary()
 
     def test_figures_owns_the_alcohol_vocabulary(self):
         """反过来：词汇表必须真的在 figures 里，否则上面那条会变成空检查。"""
