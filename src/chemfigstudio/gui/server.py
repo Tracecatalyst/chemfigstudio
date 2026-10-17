@@ -701,6 +701,16 @@ def make_server(host: str = "127.0.0.1", port: int = 8765,
     raise OSError("端口 %d-%d 都被占用：%s" % (port, port + tries - 1, last_error))
 
 
+def _open_browser(url: str, quiet: bool = False) -> None:
+    """尽力打开浏览器；打不开时**说出来**，别让用户面对一个空终端。"""
+    try:
+        opened = webbrowser.open(url)
+    except Exception:                              # pragma: no cover - 平台相关
+        opened = False
+    if not opened and not quiet:
+        print("（没能自动打开浏览器，请手动访问：%s）" % url, flush=True)
+
+
 def serve(host: str = "127.0.0.1", port: int = 8765, outdir: Optional[str] = None,
           open_browser: bool = True, verbose: bool = False, quiet: bool = False) -> int:
     """启动 GUI（阻塞），返回进程退出码。Ctrl-C 退出。"""
@@ -711,15 +721,21 @@ def serve(host: str = "127.0.0.1", port: int = 8765, outdir: Optional[str] = Non
     url = "http://%s:%d/" % (host, actual_port)
     directory = Path(outdir).expanduser() if outdir else Path.cwd()
     if not quiet:
-        print("chemfigstudio GUI 已启动：%s" % url)
-        print("  输出目录：%s" % directory)
-        print("  Ctrl-C 结束")
+        # **必须 flush**：stdout 接到管道或文件时是块缓冲，这几行会一直卡在缓冲区里，
+        # 用户跑 `make gui` 只看到一个空终端，不知道服务其实已经起来了
+        # （踩过：有人以为"网站打不开"，其实只是没打印地址）。
+        print("chemfigstudio GUI 已启动：%s" % url, flush=True)
+        print("  输出目录：%s" % directory, flush=True)
+        print("  Ctrl-C 结束", flush=True)
     if open_browser:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        # webbrowser.open 在没有图形会话（ssh、cron、部分沙箱）时**静默失败** ——
+        # 用户既看不到终端提示、也没弹出浏览器，就完全不知道发生了什么。
+        # 所以这里补一句，把地址再说一遍。
+        threading.Timer(0.4, lambda: _open_browser(url, quiet)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n已停止。")
+        print("\n已停止。", flush=True)
     finally:
         httpd.server_close()
     return 0

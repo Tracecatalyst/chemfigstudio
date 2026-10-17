@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`make gui` printed nothing, so "the website won't open".** The startup banner
+  ("chemfigstudio GUI 已启动：http://127.0.0.1:8765/") was buffered and never reached the
+  terminal when stdout was a pipe — the server was running the whole time but the user had
+  no address to type. Reproduced directly: `python3 -u` prints, plain `python3` prints
+  nothing. Every startup line now flushes.
+
+  Also: `webbrowser.open` fails *silently* without a graphical session (ssh, cron, some
+  sandboxes), which left the same dead end. When it returns false the server now says so
+  and repeats the URL.
+
+- **Two tests depended on leftover state from earlier runs.** `tests/_bootstrap.py` points
+  `CHEMFIG_CONFIG_DIR` at `dist/test-cfg`, which persists between runs. `CliTestCase` did
+  not isolate it, so `settings --output-dir` wrote into that persistent file; `GuiHttpTests`
+  did not pass its own config either, so `POST /api/settings` did the same. A stale
+  `outputDir` pointing at an already-deleted temp directory then made
+  `test_settings_output_dir_is_writable` fail forever — while passing on a clean machine,
+  which is the worst kind of failure.
+
+  Both now use a per-test config directory. Worse, that test had been passing *because* of
+  the pollution: it read `Settings.load().output_dir()` and asserted it was writable, and
+  the stale value happened to sit inside the test's own output directory. It now sets the
+  value explicitly and asserts on that, so it tests what it claims to test.
+
+  Verified: full suite green three times in a row, and no test writes `dist/test-cfg`
+  any more (checked file by file).
+
+
 ### Removed
 
 - **The two GUI screenshots** (`docs/images/gui-{light,dark}.png`). They came from the

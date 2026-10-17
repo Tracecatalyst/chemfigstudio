@@ -33,8 +33,18 @@ class CliTestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
+        # **每个 CLI 测试都用自己的配置目录**：`settings --output-dir` 这类命令会
+        # 写 settings.json，不隔离就会落到 tests/_bootstrap.py 指定的
+        # `dist/test-cfg`（跨运行持久）。踩过：残留的 outputDir 指向早已删除的
+        # 临时目录，之后每次跑测试都在别处红。
+        self._old_cfg = os.environ.get("CHEMFIG_CONFIG_DIR")
+        os.environ["CHEMFIG_CONFIG_DIR"] = str(self.tmp / "cfg")
 
     def tearDown(self):
+        if self._old_cfg is None:
+            os.environ.pop("CHEMFIG_CONFIG_DIR", None)
+        else:
+            os.environ["CHEMFIG_CONFIG_DIR"] = self._old_cfg
         self._tmp.cleanup()
 
     def run_cli(self, *argv):

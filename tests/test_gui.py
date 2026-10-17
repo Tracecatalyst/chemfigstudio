@@ -27,8 +27,17 @@ class GuiHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
-        cls.outdir = Path(cls._tmp.name)
-        cls.httpd, cls.port = gui_server.make_server(port=0, outdir=cls.outdir)
+        cls.outdir = Path(cls._tmp.name) / "out"
+        cls.outdir.mkdir(parents=True, exist_ok=True)
+        # **独立配置**：这个类的 `allow_dir()` 会 POST /api/settings 写 allowedWriteDirs。
+        # 不隔离的话写的是 `dist/test-cfg/settings.json` —— 那是个**跨运行持久**的目录，
+        # 一次污染就永久生效（踩过：残留的 outputDir 指向一个早就不存在的临时目录，
+        # 之后每次跑测试都因为"文件已存在"而红）。
+        cls._old_cfg = os.environ.get("CHEMFIG_CONFIG_DIR")
+        # 配置目录放在 ``out`` **旁边**，不是里面 —— 有测试断言 outdir 必须是空的
+        os.environ["CHEMFIG_CONFIG_DIR"] = str(Path(cls._tmp.name) / "cfg")
+        cls.cfg = settings_mod.Settings.load()
+        cls.httpd, cls.port = gui_server.make_server(port=0, outdir=cls.outdir, cfg=cls.cfg)
         cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
         cls.thread.start()
         cls.base = "http://127.0.0.1:%d" % cls.port
@@ -37,6 +46,10 @@ class GuiHttpTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        if cls._old_cfg is None:
+            os.environ.pop("CHEMFIG_CONFIG_DIR", None)
+        else:
+            os.environ["CHEMFIG_CONFIG_DIR"] = cls._old_cfg
         cls._tmp.cleanup()
 
     # ------------------------------------------------------------- helpers
@@ -118,13 +131,19 @@ class GuiHttpTests(unittest.TestCase):
 
         注意边界：这里放开的是**用户配置**里的目录，不是请求体里随便给的目录。
         """
-        from pathlib import Path
-
         from chemfigstudio import settings as settings_mod
 
-        configured = settings_mod.Settings.load().output_dir()
-        self.assertTrue(configured.is_absolute() or str(configured).startswith("~"),
-                        "output_dir 应当是绝对路径：%s" % configured)
+        # **显式**把设置里的输出目录指到本测试的临时目录，然后验证它可写。
+        # 之前这里直接读 Settings.load().output_dir()，而能通过全靠
+        # dist/test-cfg 里残留的一条 outputDir（指向上一次运行留下的临时目录）——
+        # 测试从未真正验证过"设置里的目录在写盘白名单里"这件事。
+        configured = self.outdir / "from-settings"
+        configured.mkdir(parents=True, exist_ok=True)
+        self.post("/api/settings", {"changes": {"outputDir": str(configured)}})
+
+        resolved = settings_mod.Settings.load().output_dir()
+        self.assertTrue(resolved.is_absolute() or str(resolved).startswith("~"),
+                        "output_dir 应当是绝对路径：%s" % resolved)
 
         # 用真服务验证：往这个目录写应当成功（而不是 403）
         status, payload = self.post("/api/export", {
@@ -1100,3 +1119,61 @@ class GuiSessionDocumentTests(unittest.TestCase):
         figure = data["document"]["figure"]
         self.assertEqual(figure["kind"], "skeleton")
         self.assertEqual(json.loads(figure["params"]["skeleton"])["atoms"][0]["id"], "c0")
+
+
+class GuiStartupMessageTests(unittest.TestCase):
+    """启动提示必须**立刻出现**，不能卡在 Python 的块缓冲里。
+
+    踩过：`make gui` 之后终端一片空白（stdout 接管道时是块缓冲），用户以为
+    "网站打不开"，其实服务已经在 127.0.0.1:8765 上跑着了 —— 只是没告诉他地址。
+    实测对照：`python3 -u` 有输出，`python3` 没有，就是缓冲造成的。
+    """
+
+    def _serve_with_stubbed_server(self, quiet=False, open_browser=False):
+        from unittest import mock
+
+        from chemfigstudio.gui import server as server_mod
+
+        httpd = mock.MagicMock()
+        httpd.serve_forever.side_effect = KeyboardInterrupt
+        captured = []
+
+        def fake_print(*args, **kwargs):
+            captured.append((args[0] if args else "", kwargs.get("flush")))
+
+        with mock.patch.object(server_mod, "make_server",
+                               return_value=(httpd, 8765)), \
+             mock.patch("builtins.print", fake_print):
+            server_mod.serve(open_browser=open_browser, quiet=quiet)
+        return captured
+
+    def test_every_startup_message_is_flushed(self):
+        messages = self._serve_with_stubbed_server()
+        self.assertTrue(messages, "启动时什么都没打印")
+        not_flushed = [text for text, flush in messages if flush is not True]
+        self.assertEqual(not_flushed, [],
+                         "这些提示没用 flush=True，会被缓冲吞掉：%r" % not_flushed)
+
+    def test_the_url_is_among_the_messages(self):
+        messages = self._serve_with_stubbed_server()
+        joined = " ".join(text for text, _ in messages)
+        self.assertIn("127.0.0.1:8765", joined,
+                      "启动提示里没有地址 —— 用户不知道该打开哪")
+
+    def test_quiet_suppresses_the_banner(self):
+        messages = self._serve_with_stubbed_server(quiet=True)
+        joined = " ".join(text for text, _ in messages)
+        self.assertNotIn("已启动", joined)
+
+    def test_browser_failure_is_reported(self):
+        """`webbrowser.open` 在无图形会话时静默失败 —— 必须补一句。"""
+        from unittest import mock
+
+        from chemfigstudio.gui import server as server_mod
+
+        captured = []
+        with mock.patch.object(server_mod.webbrowser, "open", return_value=False), \
+             mock.patch("builtins.print",
+                        lambda *a, **k: captured.append(a[0] if a else "")):
+            server_mod._open_browser("http://127.0.0.1:8765/", quiet=False)
+        self.assertTrue(any("手动访问" in text for text in captured), captured)
