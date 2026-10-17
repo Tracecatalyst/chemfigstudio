@@ -45,9 +45,6 @@
 右键 → 打开（或 `xattr -dr com.apple.quarantine ChemFigStudio.app`），
 因为签名只是 ad-hoc。
 
-> Release 页面上还会看到 `Source code (zip)` / `(tar.gz)` —— 那是 GitHub 给每个 tag
-> **自动生成**的，不是我们上传的。只想运行就下 `.app`；想要 Python 包就下源码包。
-
 ### 想改（任何平台）
 
 需要 Python 3.9+ 和 Pillow，不往系统里装东西：

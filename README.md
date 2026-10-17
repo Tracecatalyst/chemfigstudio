@@ -48,11 +48,6 @@ double-click. It bundles Python, Pillow and RDKit, so nothing else is required. 
 on someone else's Mac needs right-click → Open (or
 `xattr -dr com.apple.quarantine ChemFigStudio.app`), because the build is only ad-hoc signed.
 
-> The release page also shows `Source code (zip)` / `(tar.gz)`. Those are generated
-> automatically by GitHub for every tag — they are **not** something we uploaded. If you
-> just want to run the tool, take the `.app`; if you want the Python package, take the
-> source archive and see below.
-
 ### Change it (any platform)
 
 Requires Python 3.9+ and Pillow. Nothing is installed system-wide:
