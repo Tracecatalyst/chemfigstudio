@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-18
+
+### Added
+
+- **`make browser-check` exists in the public tree too.** The script
+  (`scripts/browser-check.js`, 24 assertions) had been carried over but the
+  Makefile target was missed when porting, so the check was unreachable.
+
+
+### Changed
+
+- **The "core knows no chemistry" guard actually guards now.** Its vocabulary
+  had 10 words and it never scanned bytes, so injecting `NH_{2}`, `C=O` or
+  `b"OH"` stayed green. Twenty terms, bytes decoded and scanned, and a
+  self-test that injects violations to prove the guard fails.
+
+
 ### Fixed
 
 - **Aromaticity is decided by Hückel's rule, not by "has a double bond".**
@@ -38,17 +55,6 @@
   circle poked through the ring bonds and covered the oxygen. It is now 0.8 ×
   the **shortest distance from the centre to any ring edge**, which is the
   actual "how big can this circle get without touching a bond" bound.
-
-### Added
-
-- **`make browser-check` exists in the public tree too.** The script
-  (`scripts/browser-check.js`, 24 assertions) had been carried over but the
-  Makefile target was missed when porting, so the check was unreachable.
-
-
-## [Unreleased]
-
-### Fixed
 
 - **Double-bond geometry is stored, not inferred from coordinates.** Three
   consequences of the old behaviour, all reproduced (`audit/FINDINGS` F3):
@@ -88,14 +94,6 @@
   radical — every one of them returning success. Unknown elements, isotopes
   and radicals now raise with an actionable message;
   `allow_unknown_elements=True` is the explicit escape hatch.
-
-### Changed
-
-- **The "core knows no chemistry" guard actually guards now.** Its vocabulary
-  had 10 words and it never scanned bytes, so injecting `NH_{2}`, `C=O` or
-  `b"OH"` stayed green. Twenty terms, bytes decoded and scanned, and a
-  self-test that injects violations to prove the guard fails.
-
 
 ## [0.5.0] - 2026-10-17
 
