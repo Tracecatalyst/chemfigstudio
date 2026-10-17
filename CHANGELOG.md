@@ -41,6 +41,22 @@
   `structure editor chemistry` (14 results). Exposure has to come from outside
   GitHub.
 
+  A follow-up pass measured which queries actually have a usable population
+  (10–500 repositories — enough that someone browses them, small enough that a
+  new repository can appear) and rewrote the description to lead with the three
+  terms we genuinely own: *condensed formulas*, *structural formulas*,
+  *skeletal structures*. Before, `condensed formula` (14 repositories) did not
+  list us at all; now it is rank 8. `skeletal structure` went from absent to
+  90/122, `structural formula` from 92 to 88/135.
+
+  Rank 8 of 14 is still rank 8 of 14. The limiting factor is not the wording any
+  more — it is that GitHub's ordering weighs stars and recency, and this
+  repository has neither. Teaching-oriented queries (`chemistry worksheet` 22,
+  `chemistry diagram` 91, `chemical drawing` 73) return nothing for us because
+  the description does not promise those things, and it should not: the tool
+  draws figures, it does not generate worksheets. Padding the description
+  further would be keyword stuffing, so this is where it stops.
+
 
 ## [0.5.1] - 2026-10-18
 
