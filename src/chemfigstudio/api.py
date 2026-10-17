@@ -425,6 +425,12 @@ def render(kind: str, out: Optional[str] = None, outdir: Optional[Path] = None,
         result.smiles_info = info                      # 供 CLI/GUI 显示
         if getattr(info, "notes", None):
             result.report.warnings.extend(info.notes)
+        # 双键的 E/Z 记在骨架里，但用户仍然可以拖原子（审计 F3）。拖过之后
+        # "画面看起来的样子"和"导出会写的东西"就分家了 —— 必须说出来，
+        # 否则用户以为自己画的是顺式，导出的却是反式。
+        conflicts = getattr(getattr(info, "skeleton", None), "stereo_conflicts", None)
+        if callable(conflicts):
+            result.report.warnings.extend(conflicts())
     return result
 
 

@@ -102,7 +102,8 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
                          keep_hydrogens: bool = False,
                          known_stereo: Optional[Sequence[int]] = None,
                          hydrogens: Optional[Dict[int, int]] = None,
-                         allow_unknown_elements: bool = False) -> Structure2D:
+                         allow_unknown_elements: bool = False,
+                         bond_stereo: Optional[Dict[int, str]] = None) -> Structure2D:
     """V2000 molblock → 可编辑骨架（纯文本解析，零依赖）。
 
     :param bond_px:         一根标准键的像素长度（坐标会整体缩放到这个尺度）
@@ -196,6 +197,13 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
     skeleton = Skeleton(atoms=atoms, bonds=bonds, title=title)
     _normalise_wedges(skeleton, stereo={"m%d" % i for i in (known_stereo or [])})
     _scale_and_flip(skeleton, bond_px)
+    if bond_stereo:
+        # 键序号是 molblock 的 1-based 口径
+        for position, bond in enumerate(skeleton.bonds, start=1):
+            value = bond_stereo.get(position)
+            if value in ("e", "z"):
+                bond.stereo = value
+
     _assign_default_labels(skeleton, hydrogens=hydrogens)
 
     notes: List[str] = []
@@ -302,7 +310,48 @@ def _rdkit_mol_from_skeleton(skeleton: Skeleton):
         mol = Chem.MolFromMolBlock(to_molblock(skeleton), sanitize=True)
     if mol is None:
         raise RenderError("RDKit 无法解析这个骨架（可能是芳香性或价键不成立）")
+    _apply_bond_stereo(mol, skeleton)
     return mol
+
+
+def _apply_bond_stereo(mol, skeleton: Skeleton) -> None:
+    """按骨架里记录的 E/Z **校正** RDKit 从坐标推出来的结论（审计 F3）。
+
+    V2000 的 bond stereo 列只能表达"这个双键是立体的、请按坐标解读"，
+    没有"显式 E/Z"的字段。于是 RDKit 读回 molblock 时会自己从坐标**推断**几何，
+    造成两个后果：
+
+    * 输入本来没指定几何的亚胺（``CC=NC``）被导出成确定的 ``C/C=N/C``（断言 (E)）；
+    * 立体信息只活在坐标里 —— 编辑器支持拖原子，拖一下就把反式变成顺式，
+      导出的就是另一个异构体，而且没有任何提示。
+
+    这里反过来做：**以骨架里的字段为准**。没指定就清掉（导出不带 ``/`` ``\``），
+    指定了就显式设进 RDKit，坐标怎么摆都不影响结果。
+    """
+    from rdkit import Chem
+
+    bonds = list(mol.GetBonds())
+    if len(bonds) != len(skeleton.bonds):       # 顺序万一不对就别乱改
+        return
+    for rd_bond, sk_bond in zip(bonds, skeleton.bonds):
+        if sk_bond.order != 2:
+            continue
+        if sk_bond.stereo == "":
+            rd_bond.SetStereo(Chem.BondStereo.STEREONONE)
+            continue
+        begin, end = rd_bond.GetBeginAtom(), rd_bond.GetEndAtom()
+        ref_begin = next((n.GetIdx() for n in begin.GetNeighbors()
+                          if n.GetIdx() != end.GetIdx()), None)
+        ref_end = next((n.GetIdx() for n in end.GetNeighbors()
+                        if n.GetIdx() != begin.GetIdx()), None)
+        if ref_begin is None or ref_end is None:   # 末端双键（=CH2）没有 E/Z
+            continue
+        rd_bond.SetStereoAtoms(ref_begin, ref_end)
+        rd_bond.SetStereo(Chem.BondStereo.STEREOE if sk_bond.stereo == "e"
+                          else Chem.BondStereo.STEREOZ)
+    # **不要**再调 AssignStereochemistry：它会把刚清掉的立体从坐标又推回来
+    # （实测：SetStereo(STEREONONE) 之后 MolToSmiles 是 CC=NC，再 Assign 一次
+    #  就变回 C/C=N/C —— 正是审计 F3 说的"按坐标反推"）。
 
 
 def to_smiles(skeleton: Skeleton) -> str:
@@ -544,6 +593,19 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
 
     from rdkit.Chem import Descriptors, rdMolDescriptors
 
+    # 问 RDKit 要双键的 E/Z（不要让导出时靠坐标去猜，见审计 F3）
+    stereo_by_bond: Dict[int, str] = {}
+    for position, bond in enumerate(mol.GetBonds(), start=1):
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        stereo = bond.GetStereo()
+        if stereo == Chem.BondStereo.STEREOE:
+            stereo_by_bond[position] = "e"
+        elif stereo == Chem.BondStereo.STEREOZ:
+            stereo_by_bond[position] = "z"
+        # STEREONONE / STEREOANY / STEREOCIS / STEREOTRANS 都不写：
+        # 前两个是"没指定"，后两个是"按坐标"——我们只信 RDKit 的 E/Z 结论
+
     # 问 RDKit 要权威的手性中心（不自己猜哪根键该画楔形）——
     # 注意：这里报的是 **1 起的原子序号**，正好是 molblock 的编号口径
     centres = Chem.FindMolChiralCenters(mol, includeUnassigned=False,
@@ -553,7 +615,7 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
     block = Chem.MolToMolBlock(mol, kekulize=True)
     # 这里 keep_hydrogens=True 只表示"别再替我删一遍"：删不删由上面的参数决定
     result = molblock_to_skeleton(block, bond_px=bond_px, keep_hydrogens=True,
-                                  known_stereo=stereo)
+                                  known_stereo=stereo, bond_stereo=stereo_by_bond)
     result.source = "smiles"
     result.smiles = text
     result.formula = rdMolDescriptors.CalcMolFormula(mol)

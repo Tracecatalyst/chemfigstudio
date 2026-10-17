@@ -8,7 +8,7 @@
 ## 1. 你在哪
 
 ```bash
-cd <公开仓库>          # 例如 ~/Documents/chemfigstudio
+cd <公开仓库>          # 例如 ~/Documents/chemfigstudio（git clone 下来的那个）
 # 或
 cd <私有开发库>        # 内部路径，向维护者要
 ```
@@ -21,7 +21,7 @@ cd <私有开发库>        # 内部路径，向维护者要
 | | 值 |
 |---|---|
 | 版本 | **0.5.0** |
-| 测试 | **483**（公开）/ 486（私有） |
+| 测试 | **488**（公开） |
 | 闸门 | `make lint` · `make typecheck` · `make test` · `make check-privacy` · `make browser-check` |
 
 ## 2. 十分钟上手（只读这三个）

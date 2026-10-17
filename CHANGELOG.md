@@ -5,6 +5,57 @@
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Fixed
+
+- **Double-bond geometry is stored, not inferred from coordinates.** Three
+  consequences of the old behaviour, all reproduced (`audit/FINDINGS` F3):
+
+  * An imine written without geometry (`CC=NC`) was exported as `C/C=N/C` —
+    a definite (E) that the input never asked for.
+  * `C/C=C/C` and `C/C=C\C` produced byte-identical molblocks, because V2000
+    encodes double-bond geometry in the coordinates.
+  * Dragging one atom in the editor turned trans into cis and the export
+    silently followed — no prompt, no warning.
+
+  `Bond` now has a `stereo` field (`"" | "e" | "z"`) that survives JSON
+  round-trips. `from_smiles` copies RDKit's `GetStereo()`; export **overrides**
+  what RDKit would infer, so `CC=NC` stays unspecified and `C/C=C/C` stays
+  trans regardless of layout. One subtlety worth recording: calling
+  `AssignStereochemistry` after clearing a bond re-derives it from the
+  coordinates — that was exactly the bug, so the correction must be the last
+  thing that touches the molecule.
+
+  When the drawn geometry disagrees with the stored value (the drag case),
+  `Skeleton.stereo_conflicts()` reports it and both the CLI and the render
+  path surface it as a warning: the export keeps the recorded geometry and
+  says so.
+
+- **Carbon labels respect bond order and charge.** `CH_{3}` used to be written
+  whenever a carbon had at most one neighbour, so ethene rendered as
+  `CH_{3}=CH_{3}`, methane as `CH_{3}`, formaldehyde as `CH_{3}=O` and the
+  ethyl anion as `CH_{3}-CH_{3}^{-}` — five bonds on a carbon, and no gate
+  caught it (valence checking only sums bond orders, it does not read the
+  text). The hydrogen count now comes from RDKit's `GetTotalNumHs` on the
+  SMILES path and from `4 - Σbond_order - |charge|` for molblocks. Verified
+  against RDKit on 31 labelled carbons across 21 molecules: 0 mismatches.
+
+- **Unsupported chemistry is refused instead of silently substituted.** With
+  `convert`, `C[Si](C)(C)C` became neopentane, `[Na+].[Cl-]` became methyl
+  cation plus chloride, `[13CH4]` lost its isotope and `[CH3]` lost its
+  radical — every one of them returning success. Unknown elements, isotopes
+  and radicals now raise with an actionable message;
+  `allow_unknown_elements=True` is the explicit escape hatch.
+
+### Changed
+
+- **The "core knows no chemistry" guard actually guards now.** Its vocabulary
+  had 10 words and it never scanned bytes, so injecting `NH_{2}`, `C=O` or
+  `b"OH"` stayed green. Twenty terms, bytes decoded and scanned, and a
+  self-test that injects violations to prove the guard fails.
+
+
 ## [0.5.0] - 2026-10-17
 
 ### Added

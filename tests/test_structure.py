@@ -913,3 +913,71 @@ class EmptyTitleMolblockTests(unittest.TestCase):
 
         self.assertTrue(structure.looks_like_molblock(
             structure.to_molblock(Skeleton.chain(3))))
+
+
+class DoubleBondStereoTests(unittest.TestCase):
+    """双键 E/Z 必须**存下来**，不能靠导出时从坐标反推（审计 F3）。
+
+    改之前：`CC=NC`（输入没指定几何）会被导出成 `C/C=N/C`（断言了 (E)），
+    而且反式/顺式导出的 molblock 完全一样 —— 立体信息只活在坐标里，
+    编辑器拖一下原子就换了异构体，没有任何提示。
+    """
+
+    UNSPECIFIED = ("CC=NC", "CC=NO", "CN=NC", "CC=CC")
+    SPECIFIED = ("C/C=C/C", "C/C=C\\C", "C/C=N/O", "C/C=N\\O", "C/C=C/C=C/C")
+
+    def test_unspecified_geometry_stays_unspecified(self):
+        for smiles in self.UNSPECIFIED:
+            with self.subTest(smiles=smiles):
+                result = structure.from_smiles(smiles)
+                self.assertEqual(structure.to_smiles(result.skeleton), smiles,
+                                 "%s 被断言成了确定几何" % smiles)
+
+    def test_specified_geometry_survives_the_round_trip(self):
+        for smiles in self.SPECIFIED:
+            with self.subTest(smiles=smiles):
+                result = structure.from_smiles(smiles)
+                self.assertEqual(structure.to_smiles(result.skeleton), smiles)
+
+    def test_the_stereo_lives_on_the_bond_not_in_the_coordinates(self):
+        """拖原子不该改变导出的分子 —— 这条是 F3 的核心。"""
+        result = structure.from_smiles("C/C=C/C")
+        skeleton = result.skeleton
+        self.assertEqual(structure.to_smiles(skeleton), "C/C=C/C")
+
+        # 把双键一端的取代基镜像到另一侧（等价于编辑器里的一次拖拽）
+        double = next(b for b in skeleton.bonds if b.order == 2)
+        neighbours = {}
+        for bond in skeleton.bonds:
+            neighbours.setdefault(bond.a, []).append(bond.b)
+            neighbours.setdefault(bond.b, []).append(bond.a)
+        by_id = {atom.id: atom for atom in skeleton.atoms}
+        left = [n for n in neighbours[double.a] if n != double.b][0]
+        a, b, c = by_id[double.a], by_id[double.b], by_id[left]
+        ax, ay = b.x - a.x, b.y - a.y
+        length = (ax * ax + ay * ay) ** 0.5
+        ux, uy = ax / length, ay / length
+        dx, dy = c.x - a.x, c.y - a.y
+        projection = dx * ux + dy * uy
+        c.x = a.x + projection * ux - (dx - projection * ux)
+        c.y = a.y + projection * uy - (dy - projection * uy)
+
+        # 导出仍然是反式（按记录），但必须**说出来**画面已经对不上
+        self.assertEqual(structure.to_smiles(skeleton), "C/C=C/C")
+        conflicts = skeleton.stereo_conflicts()
+        self.assertEqual(len(conflicts), 1, conflicts)
+        self.assertIn("E", conflicts[0])
+        self.assertIn("Z", conflicts[0])
+
+    def test_no_conflict_when_nothing_was_dragged(self):
+        for smiles in self.SPECIFIED:
+            with self.subTest(smiles=smiles):
+                result = structure.from_smiles(smiles)
+                self.assertEqual(result.skeleton.stereo_conflicts(), [])
+
+    def test_bond_stereo_round_trips_through_json(self):
+        from chemfigstudio.skeleton import Bond
+        bond = Bond(a="a", b="b", order=2, stereo="z")
+        self.assertEqual(bond.as_dict()["stereo"], "z")
+        self.assertEqual(Bond.from_dict(bond.as_dict()).stereo, "z")
+        self.assertEqual(Bond.from_dict({"a": "a", "b": "b", "stereo": "q"}).stereo, "")

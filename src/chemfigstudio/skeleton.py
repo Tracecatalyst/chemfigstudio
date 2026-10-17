@@ -143,20 +143,33 @@ class Bond:
     a: str
     b: str
     order: int = 1           # 1 = 单键，2 = 双键
-    wedge: str = WEDGE_NONE  # none | up | down（从 a 指向 b，与绘制顺序一致）
+    #: 楔形（手性中心用）：none | up | down，从 a 指向 b，与绘制顺序一致。
+    wedge: str = WEDGE_NONE
+    #: **双键的 E/Z**：``""``（未指定）、``"e"``、``"z"``。
+    #:
+    #: 为什么要这个字段：V2000 的 bond stereo 列只能表达"这个双键是立体的，
+    #: 按**坐标**解读"（0=either, 3=cis/trans）。如果只靠坐标，就会出现两个问题
+    #: （审计 F3）：① 输入本来没指定几何的亚胺会被导出成确定的 (E)；
+    #: ② 编辑器支持拖原子，拖一下就把反式变成顺式，而没有任何提示。
+    #: 存下真实意图之后，导出时可以按字段**校正** RDKit 从坐标推出来的结论。
+    stereo: str = ""
 
     def as_dict(self) -> Dict[str, Any]:
         data = {"a": self.a, "b": self.b, "order": int(self.order)}
         if self.wedge != WEDGE_NONE:
             data["wedge"] = self.wedge
+        if self.stereo:
+            data["stereo"] = self.stereo
         return data
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "Bond":
         wedge = str(raw.get("wedge") or WEDGE_NONE).lower()
+        stereo = str(raw.get("stereo") or "").lower()
         return cls(a=str(raw.get("a")), b=str(raw.get("b")),
                    order=max(1, min(3, int(raw.get("order") or 1))),
-                   wedge=wedge if wedge in WEDGES else WEDGE_NONE)
+                   wedge=wedge if wedge in WEDGES else WEDGE_NONE,
+                   stereo=stereo if stereo in ("e", "z") else "")
 
 
 def parse_skeleton_input(text: str) -> "Skeleton":
@@ -279,6 +292,49 @@ class Skeleton:
             if all(atom in has_double for atom in atom_set):
                 aromatic.append(path)
         return aromatic
+
+    def stereo_conflicts(self) -> List[str]:
+        """双键记录的 E/Z 与**当前坐标**对不上的地方（拖过原子就会对不上）。
+
+        审计 F3 的第二个后果：立体信息如果只活在坐标里，编辑器拖一下原子
+        就换了异构体而毫无提示。现在立体记在 :attr:`Bond.stereo` 上，但用户
+        仍然可以在画布上拖 —— 那之后"画面看起来的样子"和"导出会写的东西"
+        就分家了。这个方法把分家暴露出来，让调用方警告用户。
+
+        只在双键两端各**恰好一个**取代基时判断（课本里的绝大多数情况）；
+        多取代基要 CIP 优先级规则，超出本方法范围，一律跳过不报。
+        """
+        neighbours: Dict[str, List[str]] = {}
+        for bond in self.bonds:
+            neighbours.setdefault(bond.a, []).append(bond.b)
+            neighbours.setdefault(bond.b, []).append(bond.a)
+        by_id = {atom.id: atom for atom in self.atoms}
+
+        def side(origin, tip, axis_from, axis_to):
+            """tip 在 axis 的哪一侧（叉积符号）。"""
+            ox, oy = axis_to.x - axis_from.x, axis_to.y - axis_from.y
+            tx, ty = tip.x - origin.x, tip.y - origin.y
+            return 1 if (ox * ty - oy * tx) > 0 else -1
+
+        problems: List[str] = []
+        for bond in self.bonds:
+            if bond.order != 2 or bond.stereo not in ("e", "z"):
+                continue
+            left = [n for n in neighbours.get(bond.a, []) if n != bond.b]
+            right = [n for n in neighbours.get(bond.b, []) if n != bond.a]
+            if len(left) != 1 or len(right) != 1:
+                continue                     # 末端双键 / 多取代基：跳过
+            a, b = by_id.get(bond.a), by_id.get(bond.b)
+            c, d = by_id.get(left[0]), by_id.get(right[0])
+            if not all((a, b, c, d)):
+                continue
+            same_side = side(a, c, a, b) == side(b, d, a, b)
+            drawn = "z" if same_side else "e"
+            if drawn != bond.stereo:
+                problems.append(
+                    "%s=%s 记录的是 %s，但画出来是 %s（拖过原子？）"
+                    % (bond.a, bond.b, bond.stereo.upper(), drawn.upper()))
+        return problems
 
     def valence_errors(self) -> List[ValenceIssue]:
         """找出**超价**的原子：Σ键级 > 价键上限。

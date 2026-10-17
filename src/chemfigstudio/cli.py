@@ -295,6 +295,9 @@ def _cmd_convert(args: argparse.Namespace) -> int:
 
     try:
         skeleton = parse_skeleton_input(text)
+        # 导出之前先说清：记录的 E/Z 和画面几何对不上（拖过原子就会这样）
+        for message in skeleton.stereo_conflicts():
+            print(i18n.t("cli.warn", message=message), file=sys.stderr)
         if wanted == "molblock":
             payload = structure_mod.to_molblock(skeleton)
         elif wanted == "smiles":
