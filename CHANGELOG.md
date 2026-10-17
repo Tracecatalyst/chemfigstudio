@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **The two GUI screenshots** (`docs/images/gui-{light,dark}.png`). They came from the
+  very first commit and showed a control — "转角标注风格" / `label_style` — that no longer
+  exists in the interface, while missing the six buttons now at the bottom of the left
+  panel. That is not an outdated picture, it is a picture of an interface that is not
+  there. Both READMEs now describe the layout in words instead.
+
+  They could not be retaken automatically: five approaches all time out
+  (`page.screenshot`, CDP `Page.captureScreenshot`, `fromSurface:false`, freezing
+  animations with injected CSS, hiding the canvas). `browser-check.js` survives only
+  because it never screenshots — it asserts on the DOM. `docs/SCREENSHOTS.md` records
+  what to capture by hand, and the one thing to watch out for: the right-hand panel
+  prints the preview file's full path, which is how an OS username leaked once before.
+
+
 ### Added
 
 - **A demo GIF at the top of both READMEs** (`docs/images/demo.gif`, 311 KB, 9.5 s).
