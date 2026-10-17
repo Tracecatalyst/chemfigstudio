@@ -552,8 +552,12 @@ class ValenceTests(unittest.TestCase):
 class AromaticRingTests(unittest.TestCase):
     """芳香环圆圈（可选，默认关闭）。
 
-    判定是**拓扑启发式**（零依赖）：环长 5–7，且环内每个原子至少参与 1 根双键
-    （环内或环外都算 —— 否则萘只能有半个环满足）。
+    判定有两条路：**有 RDKit 时以它的 ``GetIsAromatic`` 为准**（权威，做真正的
+    环系分析）；没有时退回 Hückel 规则（环长 5–7、每个原子有 p 轨道、π 电子
+    数为 4n+2）。
+
+    旧版用的是"环内每个原子至少参与 1 根双键"，两头都错：苯醌被判成芳香，
+    呋喃/吡咯被判成非芳香（审计 2026-10-18）。
     """
 
     @classmethod
@@ -586,9 +590,26 @@ class AromaticRingTests(unittest.TestCase):
         """五元环但有一个 sp3 碳不参与双键 → 不是芳香环 → 不画。"""
         self.assertEqual(self.rings_of("C1=CC=CC1"), [])
 
-    def test_pyrrole_stays_kekule(self):
-        """吡咯的五元环里杂原子不带双键 → 不画圆圈（课本也多用 Kekulé 式）。"""
-        self.assertEqual(self.rings_of("c1cc[nH]c1"), [])
+    def test_pyrrole_is_aromatic(self):
+        """吡咯的氮虽然不带双键，但有一对孤对参与共轭 —— 6 个 π 电子，是芳香环。
+
+        旧版把"杂原子不带双键"当成非芳香，这是错的（审计 2026-10-18）。
+        """
+        self.assertEqual(len(self.rings_of("c1cc[nH]c1")), 1)
+
+    def test_furan_and_thiophene_are_aromatic(self):
+        """呋喃 / 噻吩同理：杂原子的孤对凑够 6 个 π 电子。"""
+        for smiles in ("c1ccoc1", "c1ccsc1"):
+            with self.subTest(smiles=smiles):
+                self.assertEqual(len(self.rings_of(smiles)), 1)
+
+    def test_benzoquinone_is_not_aromatic(self):
+        """1,4-苯醌：两个羰基碳的 p 轨道被环外氧占用，环的共轭在那里断了。
+
+        旧版因为它"每个原子都参与一根双键（含环外）"而误画圆圈 ——
+        这是审计 2026-10-18 点名的教科书级反例。
+        """
+        self.assertEqual(self.rings_of("O=C1C=CC(=O)C=C1"), [])
 
     def test_cyclooctatetraene_is_not_drawn(self):
         """8 元环超出窗口，而且它本来就是盆式非芳香。"""

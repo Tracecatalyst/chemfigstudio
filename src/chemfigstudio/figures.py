@@ -620,7 +620,12 @@ def _draw_aromatic_circles(draw, skeleton, place, dx: float, dy: float) -> None:
     只在 ``rings=True`` 时调用 —— **默认保持 Kekulé 交替双键**，因为那才是
     本工具既有的输出风格，也是逐字节回归的基线。
 
-    半径取"中心到顶点平均距离"的 0.55：太小会贴着键、太大会盖住原子标签。
+    半径取**中心到各条边的最近距离**的 0.8，而不是"到顶点的平均距离"的某个
+    比例。两种环的差别很明显：六元环近似正多边形，两者差不多；五元杂环
+    （呋喃/吡咯）经 RDKit 的 2D 布局后并不规则，顶点距离的平均值会被最远那个
+    顶点拉大，圆圈就会顶穿键、盖到杂原子上（实测呋喃）。
+
+    点到**边**的距离才是"圆圈能长到多大还不碰键"的正确定义。
     """
     import math
 
@@ -631,11 +636,24 @@ def _draw_aromatic_circles(draw, skeleton, place, dx: float, dy: float) -> None:
             continue
         cx = sum(point[0] for point in points) / len(points)
         cy = sum(point[1] for point in points) / len(points)
-        reach = sum(math.hypot(point[0] - cx, point[1] - cy)
-                    for point in points) / len(points)
-        radius = reach * 0.55
-        draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
-                     outline=INK, width=3)
+
+        def distance_to_edge(start, end):
+            """点到线段的最短距离（不是到直线的距离，端点附近会差很多）。"""
+            ax, ay = start
+            bx, by = end
+            vx, vy = bx - ax, by - ay
+            length_sq = vx * vx + vy * vy
+            if length_sq <= 0:
+                return math.hypot(cx - ax, cy - ay)
+            t = max(0.0, min(1.0, ((cx - ax) * vx + (cy - ay) * vy) / length_sq))
+            return math.hypot(cx - (ax + t * vx), cy - (ay + t * vy))
+
+        edges = [distance_to_edge(points[i], points[(i + 1) % len(points)])
+                 for i in range(len(points))]
+        radius = min(edges) * 0.8
+        if radius > 2:
+            draw.ellipse([cx - radius, cy - radius, cx + radius, cy + radius],
+                         outline=INK, width=3)
 
 
 def _draw_bond(draw, first: Tuple[float, float], second: Tuple[float, float], bond) -> None:

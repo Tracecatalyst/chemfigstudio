@@ -103,7 +103,8 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
                          known_stereo: Optional[Sequence[int]] = None,
                          hydrogens: Optional[Dict[int, int]] = None,
                          allow_unknown_elements: bool = False,
-                         bond_stereo: Optional[Dict[int, str]] = None) -> Structure2D:
+                         bond_stereo: Optional[Dict[int, str]] = None,
+                         aromatic_atoms: Optional[Set[int]] = None) -> Structure2D:
     """V2000 molblock → 可编辑骨架（纯文本解析，零依赖）。
 
     :param bond_px:         一根标准键的像素长度（坐标会整体缩放到这个尺度）
@@ -197,6 +198,12 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
     skeleton = Skeleton(atoms=atoms, bonds=bonds, title=title)
     _normalise_wedges(skeleton, stereo={"m%d" % i for i in (known_stereo or [])})
     _scale_and_flip(skeleton, bond_px)
+    if aromatic_atoms:
+        # 0-based，与 RDKit 的 GetIdx 一致
+        for position, atom in enumerate(skeleton.atoms):
+            if position in aromatic_atoms:
+                atom.aromatic = True
+
     if bond_stereo:
         # 键序号是 molblock 的 1-based 口径
         for position, bond in enumerate(skeleton.bonds, start=1):
@@ -614,8 +621,13 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
 
     block = Chem.MolToMolBlock(mol, kekulize=True)
     # 这里 keep_hydrogens=True 只表示"别再替我删一遍"：删不删由上面的参数决定
+    # RDKit 的芳香性判定是权威的（它做真正的 Hückel 计算 + 环系分析），
+    # 抄下来，别让导出时靠拓扑规则去猜（Kekulé 结构是任意的，稠环会猜错）。
+    aromatic_ids = {atom.GetIdx() for atom in mol.GetAtoms() if atom.GetIsAromatic()}
+
     result = molblock_to_skeleton(block, bond_px=bond_px, keep_hydrogens=True,
-                                  known_stereo=stereo, bond_stereo=stereo_by_bond)
+                                  known_stereo=stereo, bond_stereo=stereo_by_bond,
+                                  aromatic_atoms=aromatic_ids)
     result.source = "smiles"
     result.smiles = text
     result.formula = rdMolDescriptors.CalcMolFormula(mol)

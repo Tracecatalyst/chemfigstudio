@@ -5,6 +5,47 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Aromaticity is decided by Hückel's rule, not by "has a double bond".**
+  The old check was "every ring atom participates in some double bond (in or
+  out of the ring)", which failed in both directions:
+
+  * **1,4-benzoquinone** (`O=C1C=CC(=O)C=C1`) was drawn with a circle. Its two
+    carbonyl carbons spend their p orbital on the exocyclic oxygen, so the ring
+    conjugation is broken and only 4 π electrons remain. A textbook counterexample.
+  * **Furan, pyrrole and thiophene** were *not* drawn with a circle, even though
+    the heteroatom's lone pair joins the ring π system for the full 6.
+
+  Rings now need: length 5–7, every atom with an available p orbital (in-ring
+  double bond, or a lone pair on N/O/S/P or a carbanion), and 4n+2 π electrons.
+
+  The topological rule alone cannot be complete: Kekulé structures are
+  arbitrary, so for naphthalene the shared double bond may land in either ring
+  and the other ring would look non-conjugated. Hence `Atom.aromatic`: SMILES
+  import copies RDKit's `GetIsAromatic` (it does the real ring-system analysis)
+  and `aromatic_rings()` prefers it; the Hückel rule is the fallback for
+  molblocks, which carry no aromaticity flag.
+
+  Verified against RDKit on 18 molecules (benzene, pyridine, naphthalene,
+  anthracene, furan, thiophene, pyrrole, imidazole, indole, biphenyl, benzoquinone,
+  cyclooctatetraene, cyclopentadiene, …): 0 disagreements. Naphthalene now finds
+  both rings and anthracene all three.
+
+- **Aromatic circles were sized from the wrong thing.** The radius was 0.55 ×
+  the *average distance to the vertices*, which works for a regular hexagon but
+  overshoots on five-membered heterocycles — with furan finally being drawn, the
+  circle poked through the ring bonds and covered the oxygen. It is now 0.8 ×
+  the **shortest distance from the centre to any ring edge**, which is the
+  actual "how big can this circle get without touching a bond" bound.
+
+### Added
+
+- **`make browser-check` exists in the public tree too.** The script
+  (`scripts/browser-check.js`, 24 assertions) had been carried over but the
+  Makefile target was missed when porting, so the check was unreachable.
+
+
 ## [Unreleased]
 
 ### Fixed

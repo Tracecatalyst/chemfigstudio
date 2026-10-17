@@ -15,6 +15,7 @@ export PYTHONDONTWRITEBYTECODE := 1
 help:
 	@echo "make test      - 跑全部单元测试（core / figures / cli / gui）"
 	@echo "make check-privacy - 公开前隐私自检（署名/内网地址/路径/凭据）"
+	@echo "make browser-check - 真浏览器回归（需 ego-browser）"
 	@echo "make figures   - 用 CLI 生成 4 张示例图到 $(OUT)/"
 	@echo "make gui       - 启动本地网页 GUI（默认 http://127.0.0.1:8765）"
 	@echo "make app       - 打开 macOS 原生应用（首次会自动编译）"
@@ -102,6 +103,18 @@ bundle-universal:
 apps:
 	@# 告诉你 dist/ 里哪个是"拷给别人的那个"
 	@$(PY) scripts/list-apps.py
+
+browser-check:
+	@# 真浏览器回归：起服务 → 用 ego-browser 跑 scripts/browser-check.js → 关服务
+	@# 需要 ego-browser（不在 PATH 上时放 ~/.local/bin）
+	@rm -rf dist/browser-cfg && mkdir -p dist/browser-cfg
+	@CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/browser-cfg CHEMFIG_LANG=zh-CN \
+	  PYTHONPATH=$(SRC) $(PY) -m chemfigstudio.gui.server --port 8765 \
+	  --outdir $(CURDIR)/dist/browser-cfg --no-browser --quiet & echo $$! > dist/browser-check.pid
+	@sleep 2
+	@PATH="$$HOME/.local/bin:$$PATH" ego-browser nodejs < scripts/browser-check.js || true
+	@kill "$$(cat dist/browser-check.pid)" 2>/dev/null || true
+	@rm -f dist/browser-check.pid
 
 clean:
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +

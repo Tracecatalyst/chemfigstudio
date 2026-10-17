@@ -98,7 +98,11 @@ class Atom:
     x: float = 0.0
     y: float = 0.0
     label: str = ""          # 空 = 用 element 作为显示文本（如 "CH_{3}"）
-    charge: int = 0          # 形式电荷（导入真实分子时会有，如 N+ / O-）
+    charge: int = 0
+    #: 是否属于芳香体系。**只在导入时由 RDKit 填**（``GetIsAromatic``）；
+    #: molblock 里没有这个信息，保持 False，由 :meth:`Skeleton.aromatic_rings`
+    #: 用 Hückel 规则兜底推断。
+    aromatic: bool = False          # 形式电荷（导入真实分子时会有，如 N+ / O-）
 
     def text(self) -> str:
         """显示文本：用户标签优先，**空标签就显示元素符号**。
@@ -118,6 +122,8 @@ class Atom:
                 "y": round(self.y, 2), "label": self.label}
         if self.charge:
             data["charge"] = self.charge
+        if self.aromatic:
+            data["aromatic"] = True
         return data
 
     @classmethod
@@ -126,7 +132,8 @@ class Atom:
                    element=str(raw.get("element") or "C"),
                    x=float(raw.get("x") or 0.0), y=float(raw.get("y") or 0.0),
                    label=str(raw.get("label") or ""),
-                   charge=int(raw.get("charge") or 0))
+                   charge=int(raw.get("charge") or 0),
+                   aromatic=bool(raw.get("aromatic")))
 
 
 #: 立体键的三种画法（"立体化学"最简单也最通用的一种表示）
@@ -206,6 +213,10 @@ def parse_skeleton_input(text: str) -> "Skeleton":
     return skeleton
 
 
+#: 这些元素的杂原子即使不带双键，也能拿一对孤对电子参与共轭（呋喃的 O、吡咯的 N）
+_LONE_PAIR_ELEMENTS = frozenset({"N", "O", "S", "P", "Se", "Te"})
+
+
 @dataclass
 class Skeleton:
     """一张可编辑骨架。"""
@@ -229,28 +240,33 @@ class Skeleton:
         return (min(xs), min(ys), max(xs), max(ys))
 
     def aromatic_rings(self) -> List[List[str]]:
-        """找出应当画成**圆圈**的芳香环（Kekulé 式的环）。
+        """找出应当画成**圆圈**的芳香环 —— 按 **Hückel 规则**判定，不是拓扑启发式。
 
-        判定规则（纯拓扑，零依赖）：
+        一条环要画圆圈，必须同时满足：
 
-        * 环长 5–7；
-        * **环内每个原子都至少参与 1 根双键**（环内或环外都算）。
+        1. 环长 5–7（课本印刷体里只有这些会画圆圈）；
+        2. 环上**每个原子都还有可用的 p 轨道** —— 也就是处于 sp2 态：
+           参与一根双键，或者是有孤对的杂原子/碳负离子；
+        3. 环上 π 电子总数是 **4n+2**。
 
-        为什么要求"至少一根"而不是"环内恰好一根"：萘的两个六元环共享两个桥头碳，
-        其中只有一个环的双键是完全交替的（3 根），另一个环内只有 2 根双键 ——
-        但那个环的每个原子都在**环外**（桥头碳在另一个环里）参与双键。
-        按"恰好一根"判，萘只会有一个环画圆圈，视觉上很怪。
+        旧版用的是"环上每个原子至少参与一根双键（环内或环外都算）"，两条都错：
 
-        这条规则的效果（都是刻意的）：
-        * 苯 / 吡啶 / **萘（两个环都画）** ✅
-        * 吡咯 / 呋喃 / 噻吩 ❌ 不画 —— 五元杂环的杂原子不带双键，课本也多用 Kekulé 式；
-        * 环戊二烯 / 环己烯 / 环己二烯 ❌ 不画（有 sp3 碳不带双键，不是芳香）；
-        * 环辛四烯 ❌ 不画（8 元环超出窗口，而且它本来就是盆式非芳香）。
+        * **苯醌**（``O=C1C=CC(=O)C=C1``）被判成芳香 ❌ —— 那两个羰基碳的 p 轨道
+          被环外氧占用，环的共轭在它们那里断了。环内只剩 4 个 π 电子。
+        * **呋喃 / 吡咯 / 噻吩** 被判成非芳香 ❌ —— 杂原子虽然不带双键，却有一对
+          孤对电子参与共轭，正好凑够 6 个。
 
-        ⚠️ **局限**：这是拓扑启发式，不是真正的芳香性计算。理论上存在
-        "每个原子都带 1 根双键却不芳香"的环，那种环会被误画圆圈。要精确判定
-        得上 RDKit 的 ``GetIsAromatic``，但本工具保持零依赖 —— 宁可接受这个
-        极少数误判，也不让"画个圆圈"变成必须装 RDKit 的功能。
+        现在按每个原子能贡献几个 π 电子来数：
+
+        * 参与环内双键的原子 → 1 个；
+        * 没有双键、但带孤对的 N/O/S/P 或碳负离子 → 2 个（一对孤对）；
+        * 有**环外**双键的原子（羰基、亚胺的碳）→ p 轨道不在环上，**共轭中断**，
+          整个环直接不算芳香；
+        * 其余（sp3 碳、饱和杂原子）→ 没有 p 轨道，同样中断。
+
+        这条规则仍然**不是完整的芳香性理论**：它假设环是平面的，也不做
+        多环体系的全局 Hückel 计算（每个环单独判）。对课本里的分子足够，
+        对复杂稠环可能有偏差 —— 但比"看谁有双键"准确得多。
         """
         adjacency: Dict[str, List[str]] = {}
         for bond in self.bonds:
@@ -275,23 +291,42 @@ class Skeleton:
         for atom_id in adjacency:
             walk(atom_id, [atom_id], {atom_id})
 
-        # 只保留"每个原子恰好 1 根环内双键"的环
+        # 有 RDKit 给的权威标记时**以它为准**：Kekulé 结构是任意的（萘的共享
+        # 双键可能落在任何一个环里），纯拓扑规则会把稠环判错。标记来自
+        # `Atom.aromatic`，只在 SMILES 导入时填。
+        if any(atom.aromatic for atom in self.atoms):
+            return [path for atom_set, path in rings.items()
+                    if all(atom.aromatic for atom in self.atoms
+                           if atom.id in atom_set)]
+
         aromatic: List[List[str]] = []
         for atom_set, path in rings.items():
-            inside = [bond for bond in self.bonds
-                      if bond.a in atom_set and bond.b in atom_set]
-            if not any(bond.order == 2 for bond in inside):
-                continue                      # 环上一根双键都没有，肯定不是芳香环
-            # 每个环原子都要在环内**或环外**参与至少一根双键
-            has_double: set = set()
-            for bond in self.bonds:
-                if bond.order == 2 and bond.a in atom_set:
-                    has_double.add(bond.a)
-                if bond.order == 2 and bond.b in atom_set:
-                    has_double.add(bond.b)
-            if all(atom in has_double for atom in atom_set):
+            if self._ring_is_aromatic(atom_set):
                 aromatic.append(path)
         return aromatic
+
+    def _ring_is_aromatic(self, atom_set: frozenset) -> bool:
+        """Hückel：环上每个原子都有 p 轨道，且 π 电子数为 4n+2。"""
+        by_id = {atom.id: atom for atom in self.atoms}
+        electrons = 0
+        for atom_id in atom_set:
+            atom = by_id.get(atom_id)
+            if atom is None:
+                return False
+            doubles = [bond for bond in self.bonds
+                       if bond.order == 2 and atom_id in (bond.a, bond.b)]
+            # 环外双键：p 轨道被环外的伙伴占着，环的共轭在这里断开
+            if any(not (bond.a in atom_set and bond.b in atom_set)
+                   for bond in doubles):
+                return False
+            if doubles:
+                electrons += 1               # 参与环内双键 → 贡献 1 个 π 电子
+            elif atom.charge < 0 or (atom.element in _LONE_PAIR_ELEMENTS
+                                     and atom.charge <= 0):
+                electrons += 2               # 孤对电子参与共轭
+            else:
+                return False                 # sp3，没有 p 轨道
+        return electrons >= 2 and (electrons - 2) % 4 == 0
 
     def stereo_conflicts(self) -> List[str]:
         """双键记录的 E/Z 与**当前坐标**对不上的地方（拖过原子就会对不上）。
