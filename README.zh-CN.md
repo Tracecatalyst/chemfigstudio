@@ -45,7 +45,19 @@
 右键 → 打开（或 `xattr -dr com.apple.quarantine ChemFigStudio.app`），
 因为签名只是 ad-hoc。
 
-### 想改（任何平台）
+### Windows
+
+**没有 `.exe`** —— 打包的那个 app 是 Swift/WKWebView 外壳，只有 macOS 有。
+Windows 上工具照样能用（界面就是同一份网页），只是需要 Python：
+
+1. 装 [Python 3.9+](https://www.python.org/downloads/)（记得勾 "Add Python to PATH"）
+2. `git clone https://github.com/Tracecatalyst/chemfigstudio.git`
+3. 双击 `scripts\launch-gui.bat`
+
+那个脚本会自己找 Python、缺 Pillow 就**装到你的用户目录**、在桌面建输出文件夹、
+然后开浏览器。不需要管理员权限，不往系统里写东西。
+
+### 想改（macOS / Linux）
 
 需要 Python 3.9+ 和 Pillow，不往系统里装东西：
 

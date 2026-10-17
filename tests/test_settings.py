@@ -155,3 +155,44 @@ class RecentTests(SettingsTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlatformConfigDirTests(unittest.TestCase):
+    """配置目录要跟着平台走 —— Windows 用户不该去 C:\\Users\\X\\.config 里找。"""
+
+    def test_windows_uses_localappdata(self):
+        import importlib
+        import os
+        from unittest import mock
+
+        from chemfigstudio import settings as settings_mod
+
+        with mock.patch.object(settings_mod.sys, "platform", "win32"):
+            with mock.patch.dict(os.environ, {"LOCALAPPDATA": r"C:\Users\x\AppData\Local"}):
+                with mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("CHEMFIG_CONFIG_DIR", None)
+                    got = settings_mod.config_dir()
+        self.assertIn("AppData", str(got))
+        self.assertIn("chemfigstudio", str(got))
+        self.assertNotIn(".config", str(got))
+
+    def test_linux_keeps_xdg_location(self):
+        from unittest import mock
+
+        from chemfigstudio import settings as settings_mod
+
+        with mock.patch.object(settings_mod.sys, "platform", "linux"):
+            with mock.patch.dict("os.environ", {}, clear=False):
+                import os
+
+                os.environ.pop("CHEMFIG_CONFIG_DIR", None)
+                got = settings_mod.config_dir()
+        self.assertIn(".config", str(got))
+
+    def test_override_wins_everywhere(self):
+        from unittest import mock
+
+        from chemfigstudio import settings as settings_mod
+
+        with mock.patch.dict("os.environ", {"CHEMFIG_CONFIG_DIR": "/tmp/xyz"}):
+            self.assertEqual(str(settings_mod.config_dir()), "/tmp/xyz")

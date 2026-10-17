@@ -56,6 +56,11 @@ def config_dir() -> Path:
         return Path(override).expanduser()
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "chemfigstudio"
+    if sys.platform == "win32":
+        # Windows 的规范位置是 %LOCALAPPDATA%，不是 ~/.config（那是 Linux 习惯，
+        # 在 C:\Users\X\.config 下建目录会让用户找不着）
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        return Path(base) / "chemfigstudio"
     return Path.home() / ".config" / "chemfigstudio"
 
 

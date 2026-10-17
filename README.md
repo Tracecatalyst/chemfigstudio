@@ -48,14 +48,27 @@ double-click. It bundles Python, Pillow and RDKit, so nothing else is required. 
 on someone else's Mac needs right-click → Open (or
 `xattr -dr com.apple.quarantine ChemFigStudio.app`), because the build is only ad-hoc signed.
 
-### Change it (any platform)
+### Windows
+
+There is **no `.exe`** — the packaged app is a Swift/WKWebView shell, so it is macOS-only.
+On Windows the tool still runs fine (the UI is the same web page), it just needs Python:
+
+1. Install [Python 3.9+](https://www.python.org/downloads/) (tick "Add Python to PATH")
+2. `git clone https://github.com/Tracecatalyst/chemfigstudio.git`
+3. Double-click `scripts\launch-gui.bat`
+
+That script finds Python, installs Pillow **into your user directory** if it is missing,
+creates an output folder on the Desktop, and opens the browser. No admin rights, nothing
+system-wide.
+
+### Any other platform
 
 Requires Python 3.9+ and Pillow. Nothing is installed system-wide:
 
 ```bash
 git clone https://github.com/Tracecatalyst/chemfigstudio.git && cd chemfigstudio
 PIP_USER=1 python3 -m pip install --user pillow      # if you do not have Pillow yet
-make test                                            # 472 tests, hermetic (no network)
+make test                                            # 475 tests, hermetic (no network)
 ```
 
 RDKit is optional: without it you still get all seven figure types, skeletal editing and
