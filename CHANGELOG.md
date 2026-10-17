@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`dist/` accumulated several identically-named app bundles.** `make bundle` and
+  `make bundle-universal` produce different artifact names, and the universal build used to
+  leave its two architecture slices in `dist/universal-arm64/` and `dist/universal-x86_64/`
+  forever — so Finder/Dock/Launchpad showed three or four copies with the same icon and no
+  way to tell which one mattered. The slices now go to a temporary directory and are removed
+  on exit (also on failure), and `make apps` lists what is in `dist/` and says which bundle
+  is the one to hand to someone else.
+- A BSD `mktemp` gotcha this surfaced: the template does not create parent directories, and
+  `$TMPDIR` often ends in `/`, so the arm64 slice succeeded while the x86_64 one failed.
+
+
 ## [0.4.3] - 2026-10-16
 
 ### Added

@@ -3,8 +3,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ARM="$ROOT/dist/universal-arm64/ChemFigStudio.app"
-INTEL="$ROOT/dist/universal-x86_64/ChemFigStudio.app"
+ARM=""
+INTEL=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --arm)   ARM="$2"; shift 2 ;;
+    --intel) INTEL="$2"; shift 2 ;;
+    *) echo "未知参数：$1（用法：make-universal.sh [--arm <app>] [--intel <app>]）" >&2; exit 2 ;;
+  esac
+done
+# 没给参数就退回旧路径（兼容老文档/老脚本），但那两条路径现在是"临时目录"语义，
+# 正常用法是 `make bundle-universal` 通过 --arm/--intel 传进来。
+ARM="${ARM:-$ROOT/dist/universal-arm64/ChemFigStudio.app}"
+INTEL="${INTEL:-$ROOT/dist/universal-x86_64/ChemFigStudio.app}"
 OUT="$ROOT/dist/ChemFigStudio-universal.app"
 
 for slice in "$ARM" "$INTEL"; do

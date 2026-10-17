@@ -76,10 +76,23 @@ doctor:
 	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli doctor
 
 bundle-universal:
-	@# 通用二进制（Apple Silicon + Intel）：分别编译再 lipo 合并
-	@bash scripts/build-macos-app.sh --arch arm64 --out dist/universal-arm64
-	@bash scripts/build-macos-app.sh --arch x86_64 --out dist/universal-x86_64
-	@bash scripts/make-universal.sh
+	@# 通用二进制（Apple Silicon + Intel）：分别编译再 lipo 合并。
+	@# 中间切片放**临时目录**，跑完必删 —— 否则 dist/ 里会堆出三四个同名同图标的 .app，
+	@# 人和 Dock 都分不清该点哪个（踩过）。
+	@# 注意：BSD mktemp -d 的模板**不会**替你建父目录，而 $TMPDIR 结尾常带 /，
+	@# 拼成 /var/folders/.../T//chemfig-universal.XXXX 时父目录不存在就会失败
+	@# （踩过：arm64 抢到可用路径、x86_64 就炸）。所以显式擦掉尾部斜杠。
+	@TMPBASE=$${TMPDIR:-/tmp}; TMPBASE=$${TMPBASE%/}; \
+	WORK=$$(mktemp -d "$$TMPBASE/chemfig-universal.XXXXXX"); \
+	trap 'rm -rf "$$WORK"' EXIT INT TERM; \
+	bash scripts/build-macos-app.sh --arch arm64 --out "$$WORK/arm64" && \
+	bash scripts/build-macos-app.sh --arch x86_64 --out "$$WORK/x86_64" && \
+	bash scripts/make-universal.sh --arm "$$WORK/arm64/ChemFigStudio.app" \
+	                               --intel "$$WORK/x86_64/ChemFigStudio.app"
+
+apps:
+	@# 告诉你 dist/ 里哪个是"拷给别人的那个"
+	@$(PY) scripts/list-apps.py
 
 clean:
 	find . -name '__pycache__' -type d -prune -exec rm -rf {} +
