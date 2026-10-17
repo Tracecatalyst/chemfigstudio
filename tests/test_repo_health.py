@@ -237,3 +237,35 @@ class VersionConsistencyTests(unittest.TestCase):
         text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn("## [%s]" % __version__, text,
                       "CHANGELOG 里没有当前版本的段落（发布前要补）")
+
+
+class AuditEntryPointTests(unittest.TestCase):
+    """审计入口要一直有效 —— 它引用的路径不存在就等于没有入口。"""
+
+    DOC = REPO / "docs" / "AUDIT.md"
+
+    def test_audit_doc_exists(self):
+        self.assertTrue(self.DOC.is_file(), "docs/AUDIT.md 不见了")
+
+    def test_it_points_at_real_files(self):
+        """文档里用反引号提到的仓库内路径，必须真的存在。
+
+        否则下一个人照着找会扑空 —— 而"入口指错"比没有入口更糟。
+        """
+        import re
+        text = self.DOC.read_text(encoding="utf-8")
+        mentioned = set(re.findall(r"`([A-Za-z0-9_./-]+\.(?:md|py|json|sh|bat))`", text))
+        missing = []
+        for rel in sorted(mentioned):
+            # 只看真正的相对路径（含 /）；`core.py` 这种简称不当作路径检查
+            if "/" not in rel:
+                continue
+            if not (REPO / rel).exists():
+                missing.append(rel)
+        self.assertEqual(missing, [], "AUDIT.md 引用了不存在的路径：%s" % missing)
+
+    def test_it_records_the_previous_audit_baseline(self):
+        """必须写清上一轮的结论在哪 —— 不然新 agent 会重跑一遍。"""
+        text = self.DOC.read_text(encoding="utf-8")
+        self.assertIn("audit/2026-10-16", text)
+        self.assertIn("uipromise-01", text, "已知未修的开口要点名")
