@@ -32,6 +32,10 @@ test:
 	PYTHONPATH=$(SRC) CHEMFIG_CONFIG_DIR=$(CURDIR)/dist/test-cfg CHEMFIG_LANG=zh-CN \
 	  $(PY) -m unittest discover -s tests -v
 
+showcase:
+	@# Structure-import showcase (renders a dozen real molecules from SMILES)
+	$(PYTHONPATH_ENV) $(PY) scripts/make-showcase.py
+
 figures:
 	@mkdir -p $(OUT)
 	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1 -o $(OUT)/图1_丁醇.png

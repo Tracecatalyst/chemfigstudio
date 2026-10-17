@@ -10,3 +10,6 @@ dist/
 .pytest_cache/
 .cfg-tmp/
 .mypy_cache/
+
+# Structure-import showcase output (run `make showcase`; not committed)
+examples/import/
