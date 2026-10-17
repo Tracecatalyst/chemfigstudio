@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **README caught up with the feature set**: added a "Structure files in and out" section
+  (three input kinds, the `convert` command, and the two honest limits: no explicit
+  hydrogens, V2000 only), a "Valence checking" subsection, and a "2D vs 3D comparison"
+  section. Both the English and Chinese READMEs were updated, and the stale test counts
+  (262 / 303) now match the real number (468).
+- `docs/ROADMAP.md` marks every gold, silver and bronze item as done; the only thing left is
+  3D SVG export, which is listed as deliberately not planned.
+
+
 ### Added
 
 - **Export from the comparison page**: each row gained an "Export PNG" button that composes

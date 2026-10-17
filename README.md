@@ -44,7 +44,7 @@ Requires Python 3.9+ and Pillow. Nothing is installed system-wide:
 ```bash
 git clone https://github.com/Tracecatalyst/chemfigstudio.git && cd chemfigstudio
 PIP_USER=1 python3 -m pip install --user pillow      # if you do not have Pillow yet
-make test                                            # 303 tests, hermetic (no network)
+make test                                            # 468 tests, hermetic (no network)
 ```
 
 ## Quick start
@@ -116,6 +116,54 @@ alcohol,CCO,ethanol,-29.7
 `Export image…` writes PNG / SVG / PDF, optionally transparent, at a chosen DPI, and
 refuses to overwrite an existing file unless you confirm.
 
+## Structure files in and out
+
+The `skeleton` field accepts **three kinds of input** and sniffs which one it got:
+
+| input | example | dependency |
+|---|---|---|
+| **SMILES** | `c1ccccc1O` | RDKit (2D layout + stereochemistry) |
+| **molblock / SDF** (V2000) | a `.mol` from ChemDraw / PubChem | **none** — parsed as plain text |
+| skeleton JSON | the editor's own format | none |
+
+What you get back is an ordinary editable skeleton: drag atoms, change bond orders, or render
+it. Wedge bonds are supported; the **narrow end is always the stereocentre** (drawing it the
+other way round is the other enantiomer).
+
+Going the other direction, `chemfigstudio convert` writes structure files:
+
+```bash
+chemfigstudio convert --skeleton "CC(=O)Oc1ccccc1C(=O)O" -o aspirin.mol    # molblock (V2000)
+chemfigstudio convert --skeleton "CCO" -o ethanol.smi                      # canonical SMILES
+chemfigstudio convert --skeleton "CCO" -o ethanol.inchi                    # InChI
+chemfigstudio convert --in aspirin.mol -o back.inchi                       # round-trip
+```
+
+The format is inferred from the output extension. **molblock needs no RDKit** — that path is
+plain text, so it works even without the optional dependency. SMILES and InChI do need it
+(canonicalisation and identifiers are algorithm problems, not drawing problems).
+
+Two honest limits: exported molblocks contain **no explicit hydrogens** (hydrogens are
+implicit in a structural formula, so there are no hydrogen coordinates either — the output is
+not a 3D structure), and only **V2000** is written.
+
+### Valence checking
+
+Imports and renders report atoms whose bonds exceed the element's valence. The rules are
+deliberately conservative so it does not cry wolf: valence is the **sum of bond orders**,
+**under-valence is never reported** (hydrogens are implicit), formal charge adjusts the limit
+(`N⁺` with four bonds is ammonium), and elements outside the table are skipped entirely.
+
+## 2D vs 3D comparison
+
+`/compare` puts the condensed formula and the real 3D conformer of the same molecule side by
+side, several molecules at once, and lets you drag the 3D view. Each row can be exported as a
+single PNG containing both halves.
+
+Like the 3D viewer it is a separate page loaded on demand, and the 3D half is a WebGL canvas
+— which is why the export composes the image in the browser rather than on the server (the
+server has no pixels for it).
+
 ## 3D viewer
 
 A second page (`/viewer3d`, also reachable from the **3D molecule viewer** button in the
@@ -165,7 +213,7 @@ The app is a thin Swift/WKWebView shell around the same local server. It is unsi
 ```bash
 make lint        # syntax check (ast.parse)
 make typecheck   # mypy
-make test        # 262 unit tests, hermetic
+make test        # 468 unit tests, hermetic
 ```
 
 Every fix lands with a test in the same commit, and rendering refactors are proven by
