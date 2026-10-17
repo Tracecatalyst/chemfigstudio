@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/SECURITY.md` + `scripts/check-privacy.sh`** (`make check-privacy`) — a pre-publish
+  checklist that grew out of an actual leak. It checks five things: commit signatures,
+  private-network addresses, real home-directory paths, credentials, and leftover internal
+  context (`验收 N`, course directories).
+
+  The doc also records three things worth remembering: screenshots are the blind spot
+  (the script can only list them — a preview panel once showed the full path), rewriting
+  history needs `git filter-branch` **plus** clearing `refs/original/`, and **force-push
+  does not guarantee removal** (unreachable objects linger, forks keep the old history).
+
+  It also records a mistake made during the audit itself: the write-up briefly quoted the
+  leaked address verbatim, which turned the report into a second leak. Rule of thumb: if the
+  text could be used as a search key to find your machine, it does not belong in a repository.
+
+  Four tests cover the script, including one that builds a repository containing a LAN IP and
+  asserts the check **fails** — verifying only that the script exists would be a vacuous pass.
+
+
 ### Changed
 
 - **README caught up with the feature set**: added a "Structure files in and out" section

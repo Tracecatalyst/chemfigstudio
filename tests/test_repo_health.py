@@ -15,6 +15,10 @@ from __future__ import annotations
 
 import _bootstrap  # noqa: F401  （测试隔离：见 tests/_bootstrap.py）
 import ast
+import tempfile
+import subprocess
+import pathlib
+import os
 import re
 import unittest
 from pathlib import Path
@@ -133,3 +137,74 @@ class RoadmapTests(unittest.TestCase):
 
 if __name__ == "__main__":                                   # pragma: no cover
     unittest.main()
+
+
+class PrivacyGuardTests(unittest.TestCase):
+    """`scripts/check-privacy.sh` 必须真的能抓到泄露。
+
+    只验证"脚本存在"是**假绿** —— 它完全可能永远返回 0。
+    这里造一个含内网 IP 的临时仓库，断言脚本返回非零。
+    """
+
+    SCRIPT = REPO / "scripts" / "check-privacy.sh"
+
+    def setUp(self):
+        if not self.SCRIPT.is_file():
+            self.skipTest("没有 check-privacy.sh")
+
+    def test_script_exists_and_is_executable(self):
+        self.assertTrue(self.SCRIPT.is_file())
+        self.assertTrue(os.access(self.SCRIPT, os.X_OK), "脚本应当可执行")
+
+    def _run_on(self, repo):
+        return subprocess.run(["bash", str(self.SCRIPT), str(repo)],
+                              capture_output=True, text=True, timeout=120)
+
+    def test_flags_a_lan_ip_in_the_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            # 地址在运行时拼出来：**别把真实的私有地址写进仓库自己**，
+            # 否则发布前自检会（正确地）把这个测试文件本身报成泄露。
+            sample = ".".join(["192", "168", "7", "42"])
+            (repo / "notes.txt").write_text(
+                "调试时用的是 %s 这台机器\n" % sample, encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=tmp, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                            "commit", "-qm", "probe"], cwd=tmp, check=True)
+
+            result = self._run_on(repo)
+            self.assertNotEqual(result.returncode, 0,
+                                "含内网 IP 却没报错：\n" + result.stdout)
+            self.assertIn("内网 IP", result.stdout)
+
+    def test_flags_a_home_directory_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            # 同样在运行时拼接：仓库自己不该含"真实家目录"的样子
+            sample_path = "/" + "Users" + "/" + "somebody" + "/project/x.png"
+            (repo / "readme.md").write_text(
+                "路径是 %s\n" % sample_path, encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=tmp, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                            "commit", "-qm", "probe"], cwd=tmp, check=True)
+
+            result = self._run_on(repo)
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("家目录", result.stdout)
+
+    def test_allows_a_placeholder_path(self):
+        """``/Users/you/...`` 这种占位符不该误报 —— 误报会让人把脚本关掉。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            (repo / "readme.md").write_text(
+                'placeholder="/Users/you/Desktop"\n', encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], cwd=tmp, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                            "commit", "-qm", "probe"], cwd=tmp, check=True)
+
+            result = self._run_on(repo)
+            self.assertEqual(result.returncode, 0,
+                             "占位符被误报了：\n" + result.stdout)
