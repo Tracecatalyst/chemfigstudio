@@ -39,13 +39,35 @@ Seven figure types, all reproducible from a command or one API call:
 
 ## Install
 
+Two ways in — pick based on whether you want to **use it** or **change it**.
+
+### Use it (no Python needed on macOS)
+
+Download `ChemFigStudio.app` from the [latest release](../../releases/latest), unzip, and
+double-click. It bundles Python, Pillow and RDKit, so nothing else is required. First launch
+on someone else's Mac needs right-click → Open (or
+`xattr -dr com.apple.quarantine ChemFigStudio.app`), because the build is only ad-hoc signed.
+
+> The release page also shows `Source code (zip)` / `(tar.gz)`. Those are generated
+> automatically by GitHub for every tag — they are **not** something we uploaded. If you
+> just want to run the tool, take the `.app`; if you want the Python package, take the
+> source archive and see below.
+
+### Change it (any platform)
+
 Requires Python 3.9+ and Pillow. Nothing is installed system-wide:
 
 ```bash
 git clone https://github.com/Tracecatalyst/chemfigstudio.git && cd chemfigstudio
 PIP_USER=1 python3 -m pip install --user pillow      # if you do not have Pillow yet
-make test                                            # 468 tests, hermetic (no network)
+make test                                            # 472 tests, hermetic (no network)
 ```
+
+RDKit is optional: without it you still get all seven figure types, skeletal editing and
+molblock/SDF in and out; with it you also get arbitrary SMILES and the 3D conformer
+(`python3 -m pip install --target .pylibs rdkit numpy`).
+
+Current version: **0.5.0** (`python3 -m chemfigstudio.cli --version`).
 
 ## Quick start
 

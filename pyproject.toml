@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chemfigstudio"
-version = "0.3.0"
+version = "0.5.0"
 description = "Textbook-style condensed-structure chemistry figures (condensed formula + lone pairs) with a local web GUI"
 readme = "README.md"
 requires-python = ">=3.9"

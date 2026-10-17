@@ -24,12 +24,15 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import api, core, i18n
+from . import __version__, api, core, i18n
 from .errors import ConfigError, RenderError
 from . import settings as settings_mod
 
 __all__ = ["main", "build_parser", "VERSION"]
-VERSION = "0.2.0"
+#: 版本号**只有一个真相源**（``chemfigstudio.__version__``）。
+#: 这里曾经独立维护过一个 "0.2.0"，与包里写的 0.4.3 对不上 ——
+#: 结果 `--version` 报的和 release 标的不是同一个数（踩过）。
+VERSION = __version__
 
 
 class _CliExit(SystemExit):

@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
 ### Added
 
 - **`make check-privacy`** — a pre-publish check for things that should not end up in a
@@ -13,13 +15,16 @@
   Four tests cover it, including one that builds a repository containing a LAN
   address and asserts the check **fails** — verifying only that the script exists
   would be a vacuous pass.
+
 - **README caught up with the feature set**: added a "Structure files in and out" section
   (three input kinds, the `convert` command, and the two honest limits: no explicit
   hydrogens, V2000 only), a "Valence checking" subsection, and a "2D vs 3D comparison"
   section. Both the English and Chinese READMEs were updated, and the stale test counts
   (262 / 303) now match the real number (468).
+
 - `docs/ROADMAP.md` marks every gold, silver and bronze item as done; the only thing left is
   3D SVG export, which is listed as deliberately not planned.
+
 - **Export from the comparison page**: each row gained an "Export PNG" button that composes
   the 2D formula and the 3D conformer into one downloadable image (with the title and the
   two labels).
@@ -28,19 +33,78 @@
   the server has no pixels for it (`render3d` returns geometry only, see ADR-012). The 2D
   half is fetched fresh on every export: it comes from `/preview/preview.png`, a fixed
   filename that later requests overwrite, so a cached `<img>` would be stale.
+
 - **`make browser-check` gained three checks** for the comparison page: all six rows render
   (2D image plus 3D canvas), every row has an export button, and the exported blob is a valid
   PNG of a sane size.
 
-### Fixed
+- **Aromatic rings rendered as circles** — new `rings` parameter on the `skeleton` figure,
+  **off by default**. When enabled a qualifying aromatic ring is drawn as a circle inside the
+  ring, and its bonds are drawn single (drawing the circle *on top of* alternating double
+  bonds says "aromatic" twice, which is simply wrong — the first version did that).
 
-- **The batch panel was unusable on a fresh configuration** — found by `make browser-check`,
-  not by reading code. The security hardening only allowed `--outdir` and `allowedWriteDirs`,
-  missing the output directory configured in Settings, which the frontend pre-fills into the
-  batch panel. Pressing preview therefore failed with "outside the allowed write roots" and
-  the user had no way forward. `_write_roots()` now includes `Settings.output_dir()`; the
-  boundary is unchanged — directories still come from user configuration, never from a
-  request body.
+  The test is a zero-dependency topological heuristic: ring size 5–7, and every ring atom
+  takes part in at least one double bond (inside **or outside** the ring). The "outside"
+  part is what makes naphthalene work: its two six-membered rings share the bridgehead
+  carbons, so only one ring is fully alternating.
+
+  Measured: benzene / pyridine / naphthalene (both rings) / aspirin qualify; pyrrole, furan,
+  thiophene, cyclopentadiene, cyclohexene, cyclohexadiene and cyclooctatetraene do not.
+
+  Off by default for two reasons: it is the byte-identical regression baseline, and this is a
+  heuristic rather than a real aromaticity calculation — so it should not make chemical
+  judgements on the user's behalf.
+
+- **Structure export (ADR-015)** — the tool could read real molecules but had no way out.
+  Three targets now share one `Skeleton → molblock` path:
+
+  | target | dependency | use |
+  |---|---|---|
+  | **molblock / SDF (V2000)** | **none** | hand to any chemistry app |
+  | **canonical SMILES** | RDKit | use as input elsewhere |
+  | **InChI** | RDKit | unique identifier, deduplication |
+
+  CLI: `chemfigstudio convert --skeleton "CCO" -o out.mol` (the extension picks the format).
+
+  Deliberate choices: molblock does not need RDKit (otherwise users without it could not
+  export anything); exported bond lengths are normalised to 1.5 Å rather than divided by a
+  fixed pixel constant (60 px and 300 px drawings would otherwise become 0.65 Å / 3.3 Å,
+  which is not chemistry); our own valence check runs **before** the RDKit round-trip, since
+  RDKit's sanitiser happily accepts a five-bonded carbon and would emit a wrong InChI — and a
+  wrong InChI is far more dangerous than an error, because it ends up in a database.
+
+- **Valence checking**: `Skeleton.valence_errors()` reports atoms whose bonds exceed the
+  element's valence. Both entry points surface it — imports through `Structure2D.notes`,
+  rendering through `SaveReport.warnings` (shown as ⚠ in the GUI).
+
+  Four rules, all chosen so that it **never cries wolf** (a false positive gets the feature
+  switched off, and then it may as well not exist):
+  * valence is the **sum of bond orders**, not a bond count — a triple bond counts 3, so
+    `=C=` is 4 (fine) and one more single bond makes 5 (over);
+  * **under-valence is never reported** — hydrogens are implicit, so a carbon with one bond
+    is just a methyl; demanding exactly four would flag every skeletal carbon;
+  * **formal charge adjusts the limit** — `N⁺` with four bonds is ammonium, `O⁻` allows one;
+  * **elements outside the `VALENCE` table are skipped** — coordination compounds and
+    radicals are real.
+
+- **`docs/ROADMAP.md`** turns "what is still missing" into a file (it previously lived only
+  in a conversation). It is graded gold / silver / bronze, every completed item carries
+  evidence (commit hash or code location), and there is an explicit "deliberately not doing"
+  list (reaction balancing, spectra, docking, 3D editing, a second UI).
+
+- **`tests/test_repo_health.py`** — four repository guards: no references to unallocated
+  ADRs, no duplicate class names in a module, no duplicate method names in a class, and
+  ROADMAP completed items must carry evidence.
+
+- **The 2D vs 3D comparison is now part of the app.** A new toolbar button opens `/compare`:
+  textbook condensed formula on the left, the same molecule's real 3D conformer on the right
+  (drag to rotate), plus an example dropdown (cyclohexane, benzene, alanine, aspirin,
+  caffeine, nicotine) with a note on what 2D cannot show.
+
+  **No new API was added** — 2D reuses `POST /api/preview` (nothing written to the output
+  directory) and 3D reuses `POST /api/render3d`, so the server gained only a page route and
+  zero duplicated rendering logic. The page also guards against double-clicks: `preview.png`
+  has a fixed filename, so a stale response is dropped rather than drawn.
 
 
 ### Changed
@@ -59,8 +123,30 @@
   Unlabelled skeletal carbons keep their small dot (existing style), and the six example
   figures stay byte-identical — none of them is a skeleton figure.
 
+- **The comparison page now shows several molecules side by side.** Six presets render at
+  once, one row each (2D formula left, rotatable 3D conformer right), with "show only this
+  one" for any SMILES and "restore all examples"; the toolbar also gained auto-rotate and
+  element-label toggles.
+
+  Two problems had to be solved for that, not hand-waved:
+  * **2D requests must be serialised** — `api.preview()` writes the fixed filename
+    `preview.png`, so six concurrent requests overwrite each other and every row ends up
+    showing the same molecule. The page now funnels them through a promise chain (`twoDChain`)
+    while 3D stays concurrent (it returns JSON). Verified: the six rendered formulas have
+    different pixel dimensions, which they could not if one file were shared.
+  * **3D viewers initialise lazily** (on scroll), so six WebGL contexts do not hit the
+    browser limit at once; stale async results are dropped by a render token.
+
 
 ### Fixed
+
+- **The batch panel was unusable on a fresh configuration** — found by `make browser-check`,
+  not by reading code. The security hardening only allowed `--outdir` and `allowedWriteDirs`,
+  missing the output directory configured in Settings, which the frontend pre-fills into the
+  batch panel. Pressing preview therefore failed with "outside the allowed write roots" and
+  the user had no way forward. `_write_roots()` now includes `Settings.output_dir()`; the
+  boundary is unchanged — directories still come from user configuration, never from a
+  request body.
 
 - **Chinese titles rendered as a `□`** — content loss, not just an ugly glyph. The cause was
   that `core.py` used Arial only, and Arial has no CJK glyphs. Every example figure has an
@@ -86,149 +172,41 @@
 
   The English path is untouched: all six example figures stay byte-identical.
 
-
-### Added
-
-- **Aromatic rings rendered as circles** — new `rings` parameter on the `skeleton` figure,
-  **off by default**. When enabled a qualifying aromatic ring is drawn as a circle inside the
-  ring, and its bonds are drawn single (drawing the circle *on top of* alternating double
-  bonds says "aromatic" twice, which is simply wrong — the first version did that).
-
-  The test is a zero-dependency topological heuristic: ring size 5–7, and every ring atom
-  takes part in at least one double bond (inside **or outside** the ring). The "outside"
-  part is what makes naphthalene work: its two six-membered rings share the bridgehead
-  carbons, so only one ring is fully alternating.
-
-  Measured: benzene / pyridine / naphthalene (both rings) / aspirin qualify; pyrrole, furan,
-  thiophene, cyclopentadiene, cyclohexene, cyclohexadiene and cyclooctatetraene do not.
-
-  Off by default for two reasons: it is the byte-identical regression baseline, and this is a
-  heuristic rather than a real aromaticity calculation — so it should not make chemical
-  judgements on the user's behalf.
-
-
-### Added
-
-- **Structure export (ADR-015)** — the tool could read real molecules but had no way out.
-  Three targets now share one `Skeleton → molblock` path:
-
-  | target | dependency | use |
-  |---|---|---|
-  | **molblock / SDF (V2000)** | **none** | hand to any chemistry app |
-  | **canonical SMILES** | RDKit | use as input elsewhere |
-  | **InChI** | RDKit | unique identifier, deduplication |
-
-  CLI: `chemfigstudio convert --skeleton "CCO" -o out.mol` (the extension picks the format).
-
-  Deliberate choices: molblock does not need RDKit (otherwise users without it could not
-  export anything); exported bond lengths are normalised to 1.5 Å rather than divided by a
-  fixed pixel constant (60 px and 300 px drawings would otherwise become 0.65 Å / 3.3 Å,
-  which is not chemistry); our own valence check runs **before** the RDKit round-trip, since
-  RDKit's sanitiser happily accepts a five-bonded carbon and would emit a wrong InChI — and a
-  wrong InChI is far more dangerous than an error, because it ends up in a database.
-
-### Fixed
-
 - **A molblock with an empty title could not be read back.** `parse_skeleton_input` called
   `.strip()`, which ate the blank title line and shifted the "counts on line 4" convention,
   producing "counts line unreadable". An empty title is valid molblock per the spec; the
   molblock path now keeps the text intact while JSON and SMILES are still stripped.
 
-
-### Added
-
-- **Valence checking**: `Skeleton.valence_errors()` reports atoms whose bonds exceed the
-  element's valence. Both entry points surface it — imports through `Structure2D.notes`,
-  rendering through `SaveReport.warnings` (shown as ⚠ in the GUI).
-
-  Four rules, all chosen so that it **never cries wolf** (a false positive gets the feature
-  switched off, and then it may as well not exist):
-  * valence is the **sum of bond orders**, not a bond count — a triple bond counts 3, so
-    `=C=` is 4 (fine) and one more single bond makes 5 (over);
-  * **under-valence is never reported** — hydrogens are implicit, so a carbon with one bond
-    is just a methyl; demanding exactly four would flag every skeletal carbon;
-  * **formal charge adjusts the limit** — `N⁺` with four bonds is ammonium, `O⁻` allows one;
-  * **elements outside the `VALENCE` table are skipped** — coordination compounds and
-    radicals are real.
-
-### Fixed
-
 - **The check immediately found a chemical error in an existing test**:
   `test_double_bond_renders` built its double bond by adding a C=O to `chain(2)`, which is
   C–C–O — giving oxygen three bond-order equivalents. It now raises the existing C–C bond
   instead (C1 = 2, C2 = 3, O = 1, all valid).
+
 - Three `Image.open(...)` calls leaked file handles (`ResourceWarning: unclosed file`);
   those two lines of test-output noise are gone.
-
-
-### Added
-
-- **`docs/ROADMAP.md`** turns "what is still missing" into a file (it previously lived only
-  in a conversation). It is graded gold / silver / bronze, every completed item carries
-  evidence (commit hash or code location), and there is an explicit "deliberately not doing"
-  list (reaction balancing, spectra, docking, 3D editing, a second UI).
-- **`tests/test_repo_health.py`** — four repository guards: no references to unallocated
-  ADRs, no duplicate class names in a module, no duplicate method names in a class, and
-  ROADMAP completed items must carry evidence.
-
-### Fixed
 
 - **A test was silently swallowed.** `tests/test_export.py` had two classes named
   `FormatDocumentationTests`; the second replaced the first, so two tests never ran
   (`unittest` reports nothing and still exits 0). Removing the duplicate immediately exposed
   a failure: one test hard-coded the version heading `## [0.4.0]`, which cannot match here.
   It now finds the first released version with a regex.
+
 - **A comment described something that does not exist**: `skeleton.py` pointed at
   `Skeleton.valence_errors` (never implemented) and an unallocated ADR. It now states plainly
   that `VALENCE` is data only, with no checking logic yet.
-
-
-### Changed
-
-- **The comparison page now shows several molecules side by side.** Six presets render at
-  once, one row each (2D formula left, rotatable 3D conformer right), with "show only this
-  one" for any SMILES and "restore all examples"; the toolbar also gained auto-rotate and
-  element-label toggles.
-
-  Two problems had to be solved for that, not hand-waved:
-  * **2D requests must be serialised** — `api.preview()` writes the fixed filename
-    `preview.png`, so six concurrent requests overwrite each other and every row ends up
-    showing the same molecule. The page now funnels them through a promise chain (`twoDChain`)
-    while 3D stays concurrent (it returns JSON). Verified: the six rendered formulas have
-    different pixel dimensions, which they could not if one file were shared.
-  * **3D viewers initialise lazily** (on scroll), so six WebGL contexts do not hit the
-    browser limit at once; stale async results are dropped by a render token.
-
-
-### Added
-
-- **The 2D vs 3D comparison is now part of the app.** A new toolbar button opens `/compare`:
-  textbook condensed formula on the left, the same molecule's real 3D conformer on the right
-  (drag to rotate), plus an example dropdown (cyclohexane, benzene, alanine, aspirin,
-  caffeine, nicotine) with a note on what 2D cannot show.
-
-  **No new API was added** — 2D reuses `POST /api/preview` (nothing written to the output
-  directory) and 3D reuses `POST /api/render3d`, so the server gained only a page route and
-  zero duplicated rendering logic. The page also guards against double-clicks: `preview.png`
-  has a fixed filename, so a stale response is dropped rather than drawn.
-
-
-### Fixed
 
 - **RDKit was installed but reported as missing.** The dependency search window went up
   four levels, which reaches the project root but not a `vendor`/`.pylibs` kept above it, so
   the viewer said "RDKit required" on a machine that had RDKit. The default is now eight
   levels (only directories that actually contain `rdkit` are used), and
   `CHEMFIG_PYLIBS_DEPTH` still overrides it.
+
 - **That change exposed a real leak**: `smiles._resolve_rdkit` did not wrap RDKit in
   `quiet_rdkit()`, so `SMILES Parse Error` went straight to stderr, breaking the
   "library code never prints" rule. The helper now lives in one place (`smiles.py`) and all
   three entry points use it. The regression test had to change too: RDKit logs to *file
   descriptor 2*, which `contextlib.redirect_stderr` cannot capture — the first version passed
   vacuously. It now runs a subprocess and asserts on its stderr.
-
-
-### Fixed
 
 - **`dist/` accumulated several identically-named app bundles.** `make bundle` and
   `make bundle-universal` produce different artifact names, and the universal build used to
@@ -237,6 +215,7 @@
   way to tell which one mattered. The slices now go to a temporary directory and are removed
   on exit (also on failure), and `make apps` lists what is in `dist/` and says which bundle
   is the one to hand to someone else.
+
 - A BSD `mktemp` gotcha this surfaced: the template does not create parent directories, and
   `$TMPDIR` often ends in `/`, so the arm64 slice succeeded while the x86_64 one failed.
 

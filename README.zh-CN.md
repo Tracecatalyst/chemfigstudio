@@ -36,13 +36,32 @@
 
 ## 安装
 
-需要 Python 3.9+ 与 Pillow，不装任何系统级依赖：
+两种方式 —— 看你想要**用**它还是**改**它。
+
+### 只想用（macOS 上不需要装 Python）
+
+从 [最新 Release](../../releases/latest) 下载 `ChemFigStudio.app`，解压，双击。
+它内嵌了 Python、Pillow 和 RDKit，不用另装任何东西。第一次在别人电脑上打开需要
+右键 → 打开（或 `xattr -dr com.apple.quarantine ChemFigStudio.app`），
+因为签名只是 ad-hoc。
+
+> Release 页面上还会看到 `Source code (zip)` / `(tar.gz)` —— 那是 GitHub 给每个 tag
+> **自动生成**的，不是我们上传的。只想运行就下 `.app`；想要 Python 包就下源码包。
+
+### 想改（任何平台）
+
+需要 Python 3.9+ 和 Pillow，不往系统里装东西：
 
 ```bash
 git clone https://github.com/Tracecatalyst/chemfigstudio.git && cd chemfigstudio
-PIP_USER=1 python3 -m pip install --user pillow      # 若还没装 Pillow
-make test                                            # 468 项测试，离线可跑
+PIP_USER=1 python3 -m pip install --user pillow      # 还没装 Pillow 的话
+make test                                            # 472 项测试，离线可跑
 ```
+
+RDKit 是**可选**的：没有它也有全部七种图、骨架编辑、molblock/SDF 进出；
+装了它还能用任意 SMILES 与 3D 构象（`python3 -m pip install --target .pylibs rdkit numpy`）。
+
+当前版本：**0.5.0**（`python3 -m chemfigstudio.cli --version`）。
 
 ## 快速上手
 

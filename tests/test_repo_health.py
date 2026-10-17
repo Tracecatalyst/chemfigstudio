@@ -208,3 +208,32 @@ class PrivacyGuardTests(unittest.TestCase):
             result = self._run_on(repo)
             self.assertEqual(result.returncode, 0,
                              "占位符被误报了：\n" + result.stdout)
+
+
+class VersionConsistencyTests(unittest.TestCase):
+    """版本号必须只有一个真相源。
+
+    踩过：``cli.py`` 自己维护了一个 ``VERSION = "0.2.0"``，而包里写的是 0.4.3、
+    ``pyproject.toml`` 写的是 0.3.0 —— `--version`、release tag、打包元数据
+    三处不一致。这里把三条路都对齐，并防止再漂回去。
+    """
+
+    def test_package_and_cli_agree(self):
+        from chemfigstudio import __version__
+        from chemfigstudio import cli
+        self.assertEqual(cli.VERSION, __version__,
+                         "cli.VERSION 必须引用 __version__，不能自己写一个")
+
+    def test_pyproject_matches_package(self):
+        import re
+        from chemfigstudio import __version__
+        text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+        self.assertIsNotNone(match, "pyproject.toml 没有 version 字段")
+        self.assertEqual(match.group(1), __version__)
+
+    def test_changelog_mentions_the_current_version(self):
+        from chemfigstudio import __version__
+        text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("## [%s]" % __version__, text,
+                      "CHANGELOG 里没有当前版本的段落（发布前要补）")
