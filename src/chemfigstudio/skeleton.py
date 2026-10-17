@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from .errors import RenderError
 
 __all__ = ["Atom", "Bond", "Skeleton", "Scene", "ELEMENTS", "ELEMENT_LABELS",
-           "parse_skeleton_input", "VALENCE",
+           "parse_skeleton_input", "VALENCE", "ValenceIssue",
            "DEFAULT_HIT_RADIUS",
            "DEFAULT_BOND_LENGTH", "ANGLE_STEP", "BOND_HIT_TOLERANCE", "MOLECULE_GAP"]
 
@@ -67,6 +67,26 @@ def _point_segment_distance(px: float, py: float, ax: float, ay: float,
         return ((px - ax) ** 2 + (py - ay) ** 2) ** 0.5
     t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_sq))
     return ((px - (ax + t * dx)) ** 2 + (py - (ay + t * dy)) ** 2) ** 0.5
+
+
+@dataclass
+class ValenceIssue:
+    """一个原子的价键超限。
+
+    **只表示超价**（Σ键级 > 允许值）。欠价**不是**错误：结构式里氢是隐含的，
+    只连 1 根键的碳其实是 CH₃。
+    """
+
+    atom_id: str
+    element: str
+    actual: int              # 该原子的键级之和（一根三键算 3）
+    allowed: int             # 价键上限（已计入形式电荷）
+
+    def text(self) -> str:
+        """人可读的一句话（给 ``warnings`` / ``notes`` 用）。"""
+        charge = ""
+        return "%s 原子（%s）的键级和是 %d，超过上限 %d" % (
+            self.element, self.atom_id, self.actual, self.allowed)
 
 
 @dataclass
@@ -188,6 +208,37 @@ class Skeleton:
         xs = [a.x for a in self.atoms]
         ys = [a.y for a in self.atoms]
         return (min(xs), min(ys), max(xs), max(ys))
+
+    def valence_errors(self) -> List[ValenceIssue]:
+        """找出**超价**的原子：Σ键级 > 价键上限。
+
+        规则（见 docs/ROADMAP.md 金牌项 ③）：
+
+        * **只看键级之和，不看键数** —— 一根三键算 3，所以 ``=C=`` 两个双键是 4（合法），
+          再加一根单键就是 5（超价）。
+        * **不报欠价**：氢在结构式里是隐含的，只连 1 根键的碳就是 CH₃。
+          按"必须正好 4 根键"去查的话，每个骨架碳都会误报。
+        * **电荷修正**：正电荷允许多一根键（铵根 N⁺ 有 4 根是合法的），
+          负电荷少一根（O⁻ 只有 1 根）。
+        * **不在 ``VALENCE`` 表里的元素不检查**：配位化合物、自由基、非标准价态
+          都真实存在 —— 宁可漏报，也不误报（误报会让人把这个功能关掉）。
+        """
+        order_sum: Dict[str, int] = {}
+        for bond in self.bonds:
+            order_sum[bond.a] = order_sum.get(bond.a, 0) + bond.order
+            order_sum[bond.b] = order_sum.get(bond.b, 0) + bond.order
+
+        issues: List[ValenceIssue] = []
+        for atom in self.atoms:
+            base = VALENCE.get(atom.element)
+            if base is None:                       # 不认识的元素：不检查
+                continue
+            allowed = base + int(atom.charge)
+            actual = order_sum.get(atom.id, 0)
+            if actual > allowed:
+                issues.append(ValenceIssue(atom_id=atom.id, element=atom.element,
+                                           actual=actual, allowed=allowed))
+        return issues
 
     def hit_test(self, x: float, y: float, radius: float = DEFAULT_HIT_RADIUS) -> Optional[Atom]:
         """返回离 ``(x, y)`` 最近且在 ``radius`` 内的原子（拖拽/选中用）。"""

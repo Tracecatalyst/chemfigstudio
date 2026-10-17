@@ -26,7 +26,8 @@ class FigureTestCase(unittest.TestCase):
         self.assertTrue(path.exists(), "没有生成文件：%s" % path)
         with open(path, "rb") as fh:
             self.assertEqual(fh.read(8), PNG_MAGIC)
-        width, height = Image.open(path).size
+        with Image.open(path) as image:          # 用 with：否则会有 ResourceWarning
+            width, height = image.size
         self.assertGreater(width, min_width)
         self.assertGreater(height, min_height)
         self.assertEqual(result.size, (width, height))

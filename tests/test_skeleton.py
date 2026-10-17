@@ -135,8 +135,14 @@ class RenderTests(SkeletonTestCase):
         self.assertNotEqual(before_bytes, after_bytes, "挪原子后画面竟然没变")
 
     def test_double_bond_renders(self):
+        """双键要能画出来，而且**不能有价键告警**。
+
+        这里曾经写的是"chain(2) 再补一根 C=O 双键"—— 那会做出一个氧有 3 根键的
+        分子（C–O 单键 + C=O 双键），化学上是错的；价键检查上线后立刻被抓到。
+        改成把已有的 C–C 键升为双键：C1 键级和 2、C2 是 3、O 是 1，全部合法。
+        """
         skeleton = Skeleton.chain(2)
-        skeleton.add_bond(skeleton.atoms[0].id, skeleton.atoms[2].id, order=2)
+        skeleton.set_bond_order(skeleton.atoms[0].id, skeleton.atoms[1].id, 2)
         result = self.render(skeleton.to_json(), "double.png")
         self.assertEqual(result.warnings, [])
 
@@ -341,3 +347,203 @@ class ElementSwitchingTests(SkeletonTestCase):
     def test_element_labels_cover_all_supported_elements(self):
         from chemfigstudio.skeleton import ELEMENTS, ELEMENT_LABELS
         self.assertEqual(set(ELEMENTS), set(ELEMENT_LABELS))
+
+
+class ValenceTests(unittest.TestCase):
+    """价键检查（ROADMAP 金牌项 ③）：**超价要报，欠价不报**。
+
+    为什么欠价不报：结构式里氢是隐含的 —— 一个只连 1 根键的碳其实是 CH₃，
+    完全合法。如果按"必须正好 4 根键"去查，每个骨架碳都会误报。
+
+    为什么不在 VALENCE 表里的元素不检查：配位化合物、自由基、非标准价态都真实存在，
+    **宁可漏报也不误报**（误报会让人把这个功能关掉，然后它等于不存在）。
+    """
+
+    @staticmethod
+    def star(n_bonds, element="C", order=1):
+        """建一个中心原子连 n 根键的骨架，返回 (骨架, 中心原子)。"""
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton()
+        centre = skeleton.add_atom(element, 0.0, 0.0)
+        for index in range(n_bonds):
+            other = skeleton.add_atom("H", 80.0 * (index + 1), 0.0)
+            skeleton.add_bond(centre.id, other.id, order)
+        return skeleton, centre
+
+    # ------------------------------------------------------------- 正常分子
+
+    def test_default_chain_is_clean(self):
+        from chemfigstudio.skeleton import Skeleton
+        self.assertEqual(Skeleton.chain(4).valence_errors(), [])
+
+    def test_benzene_is_clean(self):
+        from chemfigstudio.structure import from_smiles
+        result = from_smiles("c1ccccc1")
+        self.assertEqual(result.skeleton.valence_errors(), [])
+
+    def test_aspirin_is_clean(self):
+        """真实分子必须是干净的 —— 否则这功能只会制造噪声。"""
+        from chemfigstudio import smiles as smiles_mod
+        if not smiles_mod.rdkit_available():
+            self.skipTest("没装 RDKit（可选依赖）")
+        from chemfigstudio.structure import from_smiles
+        result = from_smiles("CC(=O)Oc1ccccc1C(=O)O")
+        self.assertEqual(result.skeleton.valence_errors(), [])
+
+    # --------------------------------------------------------------- 超价
+
+    def test_five_bonds_on_carbon_is_reported(self):
+        skeleton, carbon = self.star(5)
+        issues = skeleton.valence_errors()
+        self.assertEqual(len(issues), 1, issues)
+        issue = issues[0]
+        self.assertEqual(issue.atom_id, carbon.id)
+        self.assertEqual(issue.element, "C")
+        self.assertEqual(issue.actual, 5)
+        self.assertEqual(issue.allowed, 4)
+
+    def test_four_bonds_on_carbon_is_fine(self):
+        skeleton, _ = self.star(4)
+        self.assertEqual(skeleton.valence_errors(), [])
+
+    def test_bond_order_counts_towards_valence(self):
+        """按**键级之和**算，不是按键数：三键(3) + 单键(1) + 单键(1) = 5，超价。
+
+        （注意对手原子要选碳：给 H 连三键的话，H 自己就超价了 —— 那是测试写错，
+          不是被测代码的问题。）
+        """
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton()
+        centre = skeleton.add_atom("C", 0.0, 0.0)
+        for index, order in enumerate((3, 1, 1)):
+            other = skeleton.add_atom("C", 80.0 * (index + 1), 0.0)
+            skeleton.add_bond(centre.id, other.id, order)
+        issues = skeleton.valence_errors()
+        self.assertEqual(len(issues), 1, issues)
+        self.assertEqual(issues[0].actual, 5)
+        self.assertEqual(issues[0].element, "C")
+
+    def test_two_double_bonds_on_carbon_is_reported(self):
+        """=C= （两个双键）是 4，合法；再加一根单键就是 5，要报。"""
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton()
+        centre = skeleton.add_atom("C", 0.0, 0.0)
+        first = skeleton.add_atom("C", 80.0, 0.0)
+        second = skeleton.add_atom("C", -80.0, 0.0)
+        skeleton.add_bond(centre.id, first.id, 2)
+        skeleton.add_bond(centre.id, second.id, 2)
+        self.assertEqual(skeleton.valence_errors(), [], "两个双键正好 4，不该报")
+
+        third = skeleton.add_atom("H", 0.0, 80.0)
+        skeleton.add_bond(centre.id, third.id, 1)
+        self.assertEqual(len(skeleton.valence_errors()), 1, "再加一根就 5 了")
+
+    def test_oxygen_with_three_bonds_is_reported(self):
+        skeleton, oxygen = self.star(3, element="O")
+        issues = skeleton.valence_errors()
+        self.assertEqual(len(issues), 1, issues)
+        self.assertEqual(issues[0].allowed, 2)
+
+    # --------------------------------------------------------------- 电荷
+
+    def test_positive_charge_raises_the_limit(self):
+        """铵根 NH₄⁺：N 带 4 根键是**合法**的。"""
+        skeleton, nitrogen = self.star(4, element="N")
+        self.assertEqual(len(skeleton.valence_errors()), 1,
+                         "不带电的 N 有 4 根键应当报")
+        nitrogen.charge = 1
+        self.assertEqual(skeleton.valence_errors(), [],
+                         "N⁺ 有 4 根键是铵根，合法")
+
+    def test_negative_charge_lowers_the_limit(self):
+        """O⁻ 只允许 1 根键（羟基负离子）。"""
+        skeleton, oxygen = self.star(2, element="O")
+        self.assertEqual(skeleton.valence_errors(), [], "中性 O 两根键合法")
+        oxygen.charge = -1
+        self.assertEqual(len(skeleton.valence_errors()), 1, "O⁻ 两根键超价")
+
+    # ----------------------------------------------------- 不检查 / 不误报
+
+    def test_unknown_element_is_not_checked(self):
+        """不在 VALENCE 表里的元素一律不检查（配位化合物可能合法）。"""
+        from chemfigstudio.skeleton import Atom, Bond, Skeleton
+
+        atoms = [Atom(id="fe", element="Fe")]
+        bonds = []
+        for index in range(8):
+            atoms.append(Atom(id="l%d" % index, element="N",
+                              x=80.0 * (index + 1)))
+            bonds.append(Bond(a="fe", b="l%d" % index))
+        skeleton = Skeleton(atoms=atoms, bonds=bonds)
+        self.assertEqual(skeleton.valence_errors(), [])
+
+    def test_isolated_atom_is_fine(self):
+        """孤立原子（0 根键）不报 —— 欠价不是错误。"""
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton()
+        skeleton.add_atom("C", 0.0, 0.0)
+        self.assertEqual(skeleton.valence_errors(), [])
+
+    def test_issue_has_a_human_readable_message(self):
+        skeleton, _ = self.star(6)
+        issue = skeleton.valence_errors()[0]
+        text = issue.text()
+        self.assertIn("6", text)
+        self.assertIn("4", text)
+        self.assertIn("C", text)
+
+    # ------------------------------------------------------------ 接线
+
+    def test_import_note_mentions_valence_problem(self):
+        """导入一个超价分子时，结果要有提示（不能静默画出化学错误）。"""
+        from chemfigstudio.structure import from_molblock
+
+        # 甲烷 + 5 根 H 键（V2000：1 个 C + 5 个 H = 6 原子，5 根单键）
+        block = "\n".join([
+            "overvalent", "     chemfigstudio-test", "",
+            "  6  5  0  0  0  0  0  0  0  0999 V2000",
+            "    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    1.0000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+            "   -1.0000    0.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    0.0000    1.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    0.0000   -1.0000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+            "    0.7000    0.7000    0.0000 H   0  0  0  0  0  0  0  0  0  0  0  0",
+            "  1  2  1  0", "  1  3  1  0", "  1  4  1  0", "  1  5  1  0", "  1  6  1  0",
+            "M  END", ""])
+        result = from_molblock(block, keep_hydrogens=True)
+        self.assertTrue(result.skeleton.valence_errors())
+        self.assertTrue(any("价" in note for note in result.notes),
+                        "导入结果的 notes 里应当提到价键问题：%s" % result.notes)
+
+    def test_render_warns_about_valence_problem(self):
+        """出图时也要警告 —— GUI/CLI 都靠 SaveReport.warnings 看到问题。"""
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import figures
+
+        skeleton, _ = self.star(5)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = figures.skeleton_figure(
+                str(Path(tmp) / "bad.png"), skeleton=skeleton.to_json(),
+                formats=("png",), dpi=150)
+        self.assertTrue(any("价" in warning for warning in result.warnings),
+                        "出图时应当警告价键问题：%s" % result.warnings)
+
+    def test_clean_molecule_still_has_no_warnings(self):
+        """反向确认：干净分子不能被这套检查弄出告警来。"""
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import figures
+        from chemfigstudio.skeleton import Skeleton
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = figures.skeleton_figure(
+                str(Path(tmp) / "ok.png"), skeleton=Skeleton.chain(5).to_json(),
+                formats=("png",), dpi=150)
+        self.assertEqual(result.warnings, [])

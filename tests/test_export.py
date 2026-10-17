@@ -80,7 +80,8 @@ class ExportFormatTests(unittest.TestCase):
         result = self.render()
         svg = Path(result.outputs["svg"]).read_text(encoding="utf-8")
         view_box = [float(v) for v in re.search(r'viewBox="([^"]+)"', svg).group(1).split()]
-        png_w, png_h = Image.open(result.outputs["png"]).size
+        with Image.open(result.outputs["png"]) as image:
+            png_w, png_h = image.size
         self.assertAlmostEqual(view_box[2], png_w, delta=max(2, png_w * 0.01))
         self.assertAlmostEqual(view_box[3], png_h, delta=max(2, png_h * 0.01))
 
@@ -90,7 +91,8 @@ class ExportFormatTests(unittest.TestCase):
         result = self.render(dpi=300)
         box = pdf_mediabox(Path(result.outputs["pdf"]))
         self.assertIsNotNone(box, "找不到 MediaBox")
-        png_w, png_h = Image.open(result.outputs["png"]).size
+        with Image.open(result.outputs["png"]) as image:
+            png_w, png_h = image.size
         for got, want in zip(box, (png_w, png_h)):
             # PNG 像素 → 点：/dpi*72
             expected_pt = want / 300.0 * 72.0
@@ -177,8 +179,8 @@ class FormatDocumentationTests(unittest.TestCase):
     def _scanned_text(cls, path, rel):
         """返回本文档里"现役"的部分（CHANGELOG 只取第一个**已发布**版本之前）。
 
-        不要写死版本号：私有仓库是 0.2.x、公开仓库是 0.4.x，写死会让它在
-        另一边永远匹配不到 —— 而这种情况曾被重复类名静默掩盖过。
+        不要写死版本号：私有仓库是 0.2.x、公开仓库是 0.4.x，写死 `## [0.4.0]`
+        会让它在这边永远匹配不到 —— 而它恰好被一个同名类静默覆盖过，所以从没报错。
         """
         text = path.read_text(encoding="utf-8")
         if rel in cls.PARTIAL_FILES:

@@ -189,6 +189,11 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
     if not atoms:
         raise RenderError("去掉氢之后没有原子了 —— 这大概是纯氢分子？")
 
+    # 价键检查：导入一个超价分子时**不能静默画出化学错误**。
+    # 只报超价（欠价的氢是隐含的，见 Skeleton.valence_errors 的说明）。
+    for issue in skeleton.valence_errors():
+        notes.append("价键可能有问题：%s" % issue.text())
+
     return Structure2D(skeleton=skeleton, title=title, source="molblock",
                        skipped_elements=sorted(set(skipped)), notes=notes)
 

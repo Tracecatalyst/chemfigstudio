@@ -527,7 +527,11 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
     """
     from .skeleton import ATOM_RADIUS, Scene, parse_skeleton_input
 
-    # 输入三种形态：空 / 多分子场景 JSON / 其余（单骨架 JSON、molblock、SMILES）
+    # 输入有三种形态，判定顺序有讲究：
+    #   1. 空 → 默认直链
+    #   2. 多分子场景 JSON（顶层是 {active, molecules}）→ 必须按 Scene 解析，
+    #      否则会被降级成单分子、多分子图变回一张（踩过）
+    #   3. 其余（单骨架 JSON / molblock / SDF / SMILES）→ parse_skeleton_input
     text = str(skeleton or "").strip()
     if not text:
         scene = Scene.single()
@@ -575,6 +579,14 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
                   font=font, fill=INK)
 
     report = core.save_figure(surface, out, formats=formats, dpi=dpi, transparent=transparent)
+
+    # 价键检查（ROADMAP 金牌项 ③）：超价的分子照样画出来，但必须**说出来** ——
+    # 静默画一张化学错误的图，比画不出来更糟（用户会以为是对的）。
+    for molecule in scene.molecules:
+        for issue in molecule.valence_errors():
+            report.warnings.append("价键超限：%s（检查是不是多连了键，或键级不对）"
+                                   % issue.text())
+
     return FigureResult("skeleton", report)
 
 
@@ -641,11 +653,13 @@ def _draw_atom(draw, centre: Tuple[float, float], atom) -> None:
     """画一个原子：白底圆点 + 元素配色 + 富文本标签。
 
     **裸碳不写字**：结构式里碳骨架是线，顶点只画一个小圆点（否则满图都是 "C"）。
+    其余原子按标签绘制；标签比圆点宽时就让它自然溢出（而不是把圆点撑成巨球）。
     """
     from .skeleton import ATOM_RADIUS
 
     ax, ay = centre
     label = atom.text()
+    # 裸碳（没有用户标签、就是元素符号 C）不写文字
     bare_carbon = (atom.element == "C" and not atom.label)
     if bare_carbon:
         label = ""
@@ -655,6 +669,7 @@ def _draw_atom(draw, centre: Tuple[float, float], atom) -> None:
         font = core.fonts(_LABEL_FONT, True)
         sub = core.fonts(_LABEL_SUB)
         width = core.text_width(draw, label, font, sub)
+        # 圆点至少罩得住"元素符号本身"；长标签允许溢出，但圆点不要小得看不见
         radius = max(ATOM_RADIUS, min(width / 2.0 + 6.0, ATOM_RADIUS * 1.6))
 
     draw.ellipse([ax - radius, ay - radius, ax + radius, ay + radius],

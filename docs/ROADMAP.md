@@ -29,6 +29,7 @@
 | ⑥ | **2D/3D 对照页**（多分子并排，接进 app） | 银 | `CHANGELOG.md` · `/compare` |
 | — | 杂原子标签按**价键环境**推断（咖啡因的 N 不再写成 `NH₂`） | 银 | `CHANGELOG.md` |
 | — | 默认就能找到 RDKit（搜索深度 4→8） | 金 | `CHANGELOG.md` |
+| ③ | **价键检查**（超价报警，欠价不报、电荷修正、未知元素跳过） | 金 | `skeleton.py::Skeleton.valence_errors` · `tests/test_skeleton.py::ValenceTests` |
 
 核实命令：
 
@@ -43,12 +44,6 @@ ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
 ## 待办（按建议顺序，逐项勾掉）
 
 ### 金 —— 让"读进来的分子"不出错
-
-- [ ] **③ 价键检查**：画/导入时发现"碳有 5 根键"这类错误并报出来。
-  - 现状：`VALENCE` 数据表已在 `skeleton.py`，但**没有任何检查逻辑**
-  - 做法：`Skeleton.valence_errors()` 返回 `[(atom_id, 期望, 实际)]`；
-    接到导入后与编辑后，用 `SaveReport.warnings` 或 `RenderError` 表达
-  - 参考：`render3d` 的 `pruneRmsThresh` 式"宁可漏报不误报"
 
 - [ ] **芳香环画成圆圈**（现在一律 Kekulé 交替双键）
   - 现状：`figures.py` 无 aromatic/circle 相关代码

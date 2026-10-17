@@ -7,6 +7,32 @@
 
 ### Added
 
+- **Valence checking**: `Skeleton.valence_errors()` reports atoms whose bonds exceed the
+  element's valence. Both entry points surface it — imports through `Structure2D.notes`,
+  rendering through `SaveReport.warnings` (shown as ⚠ in the GUI).
+
+  Four rules, all chosen so that it **never cries wolf** (a false positive gets the feature
+  switched off, and then it may as well not exist):
+  * valence is the **sum of bond orders**, not a bond count — a triple bond counts 3, so
+    `=C=` is 4 (fine) and one more single bond makes 5 (over);
+  * **under-valence is never reported** — hydrogens are implicit, so a carbon with one bond
+    is just a methyl; demanding exactly four would flag every skeletal carbon;
+  * **formal charge adjusts the limit** — `N⁺` with four bonds is ammonium, `O⁻` allows one;
+  * **elements outside the `VALENCE` table are skipped** — coordination compounds and
+    radicals are real.
+
+### Fixed
+
+- **The check immediately found a chemical error in an existing test**:
+  `test_double_bond_renders` built its double bond by adding a C=O to `chain(2)`, which is
+  C–C–O — giving oxygen three bond-order equivalents. It now raises the existing C–C bond
+  instead (C1 = 2, C2 = 3, O = 1, all valid).
+- Three `Image.open(...)` calls leaked file handles (`ResourceWarning: unclosed file`);
+  those two lines of test-output noise are gone.
+
+
+### Added
+
 - **`docs/ROADMAP.md`** turns "what is still missing" into a file (it previously lived only
   in a conversation). It is graded gold / silver / bronze, every completed item carries
   evidence (commit hash or code location), and there is an explicit "deliberately not doing"
