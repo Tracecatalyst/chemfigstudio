@@ -158,7 +158,7 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
         raw.append((x, y, symbol if symbol in ELEMENTS else "C",
                     charges.get(index + 1, 0)))
 
-    # 不认识的元素**不能静默换成碳** —— 那是另一个分子。
+    # 不认识的元素**不能静默换成碳** —— 那是另一个分子。（决策与代价见 ADR-016）
     # 审计 F2 实测：`C[Si](C)(C)C`（TMS）会导出成新戊烷、`[Na+].[Cl-]` 导出成
     # 甲基正离子 + 氯离子，都返回 ok:true。宁可报错，也不能悄悄改变化学式。
     if skipped and not allow_unknown_elements:
@@ -572,7 +572,7 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
         raise RenderError("RDKit 无法解析 SMILES %r（写法有误？）" % smiles)
 
     # 同位素与自由基：我们的模型里**没有这两类信息**（Atom 只有 element/charge/
-    # wedge），Accept 了就等于静默丢弃。审计 F2 实测：
+    # wedge/aromatic），Accept 了就等于静默丢弃。（同 ADR-016）审计 F2 实测：
     #   [13CH4] → C（丢了 ¹³C 标记）、[2H]C → C（丢了氘）、[CH3] → C（自由基变中性）
     # 宁可拒绝，也不能导出一个化学上不同的分子。
     isotopes = sorted({atom.GetIsotope() for atom in mol.GetAtoms()
