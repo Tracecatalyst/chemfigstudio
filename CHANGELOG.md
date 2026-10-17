@@ -5,6 +5,31 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Export from the comparison page**: each row gained an "Export PNG" button that composes
+  the 2D formula and the 3D conformer into one downloadable image (with the title and the
+  two labels).
+
+  The composition happens in the browser because the 3D half is a 3Dmol **WebGL canvas** —
+  the server has no pixels for it (`render3d` returns geometry only, see ADR-012). The 2D
+  half is fetched fresh on every export: it comes from `/preview/preview.png`, a fixed
+  filename that later requests overwrite, so a cached `<img>` would be stale.
+- **`make browser-check` gained three checks** for the comparison page: all six rows render
+  (2D image plus 3D canvas), every row has an export button, and the exported blob is a valid
+  PNG of a sane size.
+
+### Fixed
+
+- **The batch panel was unusable on a fresh configuration** — found by `make browser-check`,
+  not by reading code. The security hardening only allowed `--outdir` and `allowedWriteDirs`,
+  missing the output directory configured in Settings, which the frontend pre-fills into the
+  batch panel. Pressing preview therefore failed with "outside the allowed write roots" and
+  the user had no way forward. `_write_roots()` now includes `Settings.output_dir()`; the
+  boundary is unchanged — directories still come from user configuration, never from a
+  request body.
+
+
 ### Changed
 
 - **Atom labels now follow the usual structural-formula convention**: an atom with a label

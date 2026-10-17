@@ -260,8 +260,20 @@ class GuiHandler(BaseHTTPRequestHandler):
 
     # -------------------------------------------------------------- 边界检查
     def _write_roots(self) -> "Tuple[Path, ...]":
-        """允许写盘的目录集合：``outdir`` + 设置里的 ``allowedWriteDirs``。"""
+        """允许写盘的目录集合：``outdir`` + 设置里的输出目录 + ``allowedWriteDirs``。
+
+        **为什么包含设置里的输出目录**：那是用户在设置面板里指定的地方（默认
+        ``~/Documents/chemfigstudio``），前端会把它预填进批量面板的输出框。
+        安全收口时漏了它，结果是"全新配置下批量功能一按就报
+        'outside the allowed write roots'"——用户根本没得选（踩过）。
+        注意这跟"第三方页面指定任意目录"是两回事：这里的目录**只来自用户配置**，
+        不来自请求体。
+        """
         roots = [self.outdir]
+        try:
+            roots.append(settings_mod.Settings.load().output_dir())
+        except Exception:                           # pragma: no cover - 配置坏了不该崩
+            pass
         for entry in (self.cfg.get("allowedWriteDirs") or []):
             roots.append(Path(str(entry)).expanduser())
         return tuple(roots)

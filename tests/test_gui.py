@@ -108,6 +108,32 @@ class GuiHttpTests(unittest.TestCase):
             self.assertNotIn("cdn", text.lower())             # 不许有 CDN（离线要求）
             self.assertIn("viewer3d.js", text)
 
+    def test_settings_output_dir_is_writable(self):
+        """设置里的输出目录必须在写盘白名单里。
+
+        安全收口（security-01）只放开了 ``--outdir`` 与 ``allowedWriteDirs``，
+        漏了用户在设置面板里指定的输出目录 —— 而前端会把它预填进批量面板，
+        于是**全新配置下批量功能一按就报 "outside the allowed write roots"**，
+        用户根本没得选。这条测试盯着那个缺口。
+
+        注意边界：这里放开的是**用户配置**里的目录，不是请求体里随便给的目录。
+        """
+        from pathlib import Path
+
+        from chemfigstudio import settings as settings_mod
+
+        configured = settings_mod.Settings.load().output_dir()
+        self.assertTrue(configured.is_absolute() or str(configured).startswith("~"),
+                        "output_dir 应当是绝对路径：%s" % configured)
+
+        # 用真服务验证：往这个目录写应当成功（而不是 403）
+        status, payload = self.post("/api/export", {
+            "kind": "alcohol", "params": {"smiles": "CCO"},
+            "dir": str(configured), "filename": "probe.png"})
+        self.assertNotEqual(status, 403,
+                            "设置里的输出目录被拒了：%s" % payload)
+        self.assertTrue(payload.get("ok"), payload)
+
     def test_preview_surfaces_valence_problems(self):
         """超价分子必须通过 HTTP 把 warnings 交给前端（否则 GUI 上等于没检查）。
 

@@ -138,3 +138,19 @@
 }
 
 .meta:empty { display: none; }
+
+/* 行头的导出按钮：推到最右侧，别和徽章挤在一起 */
+.cmp-export {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cmp-export:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cmp-export:disabled { opacity: .6; cursor: default; }

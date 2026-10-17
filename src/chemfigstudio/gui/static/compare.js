@@ -96,6 +96,7 @@ function rowElement(item) {
       <h2></h2>
       <code></code>
       <span class="badges"></span>
+      <button class="cmp-export" type="button"></button>
     </div>
     <div class="panes">
       <div class="pane">
@@ -112,6 +113,9 @@ function rowElement(item) {
 
   section.querySelector("h2").textContent = name;
   section.querySelector("code").textContent = item.smiles;
+  const exportButton = section.querySelector(".cmp-export");
+  exportButton.textContent = t("compare.export");
+  exportButton.addEventListener("click", () => exportRow(section, item, exportButton));
   const labels = section.querySelectorAll(".pane-label");
   labels[0].textContent = t("compare.twoD");
   labels[1].textContent = t("compare.threeD");
@@ -249,6 +253,120 @@ function installObservers() {
   }, { rootMargin: "300px 0px" });
   hosts.forEach((h) => io.observe(h));
   CMP.observer = io;
+}
+
+/* ---------------------------------------------------------------- 导出 */
+
+/**
+ * 把一行的 2D 与 3D 合成一张 PNG 下载。
+ *
+ * 为什么在浏览器里合成、而不是让服务端拼图：
+ * 3D 那一半是 3Dmol 的 **WebGL canvas**，服务端根本没有它的像素
+ * （`render3d` 只返回几何数据，见 ADR-012）。所以必须在这边取。
+ *
+ * 注意 2D 那一半走 `/preview/preview.png`，是**固定文件名**、会被后续请求覆盖，
+ * 所以每次导出都重新 fetch 一次，不能复用 `<img>` 已经加载过的那份。
+ */
+async function exportRow(section, item, button) {
+  const key = item.key;
+  const viewer = CMP.viewers[key];
+  const host = section.querySelector(".viewer");
+  const img = section.querySelector(".shot img");
+  if (!img || img.hidden) {
+    button.textContent = t("compare.exportNo2D");
+    return;
+  }
+
+  const previous = button.textContent;
+  button.disabled = true;
+  button.textContent = t("compare.exporting");
+  try {
+    const twoD = await loadImage(img.getAttribute("src"));
+
+    // 3D：有 viewer 取当前视角的帧；没有就留白（还没滚到可见）
+    let threeD = null;
+    if (viewer && typeof viewer.pngURI === "function") {
+      const uri = viewer.pngURI();
+      if (uri) threeD = await loadImage(uri);
+    }
+
+    const canvas = compose(twoD, threeD, formTitle(item), host);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("toBlob returned null");
+    download(blob, (item.key === "custom" ? "structure" : item.key) + "-2d-3d.png");
+    button.textContent = t("compare.exported");
+  } catch (error) {
+    button.textContent = t("compare.exportFailed");
+    // eslint-disable-next-line no-console
+    console.warn("compare export failed", error);
+  } finally {
+    button.disabled = false;
+    window.setTimeout(() => { button.textContent = previous; },
+                      button.textContent === t("compare.exported") ? 1600 : 2200);
+  }
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("image failed: " + src));
+    image.src = src;
+  });
+}
+
+function formTitle(item) {
+  if (item.nameKey) return t(item.nameKey);
+  return item.smiles;
+}
+
+/** 把两张图并排画进一张画布，带标题与说明。 */
+function compose(twoD, threeD, title, host) {
+  const PAD = 24;
+  const GAP = 24;
+  const HEAD = 58;
+  const LABEL = 26;
+  const FH = Math.max(240, Math.round(host ? host.clientHeight : 320));
+  const scale = (image) => Math.min(1, FH / Math.max(1, image.naturalHeight));
+
+  const w2 = Math.round(twoD.naturalWidth * scale(twoD));
+  const h2 = Math.round(twoD.naturalHeight * scale(twoD));
+  const w3 = threeD ? Math.round(threeD.naturalWidth * scale(threeD)) : w2;
+  const h3 = threeD ? Math.round(threeD.naturalHeight * scale(threeD)) : h2;
+
+  const width = PAD * 2 + w2 + GAP + w3;
+  const height = HEAD + Math.max(h2, h3) + LABEL + PAD;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#111827";
+  ctx.font = "600 22px -apple-system, 'PingFang SC', Arial, sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText(title, PAD, 16);
+
+  ctx.drawImage(twoD, PAD, HEAD, w2, h2);
+  if (threeD) ctx.drawImage(threeD, PAD + w2 + GAP, HEAD, w3, h3);
+
+  ctx.fillStyle = "#6b7280";
+  ctx.font = "13px -apple-system, 'PingFang SC', Arial, sans-serif";
+  ctx.fillText(t("compare.twoD"), PAD, HEAD + Math.max(h2, h3) + 4);
+  ctx.fillText(t("compare.threeD"), PAD + w2 + GAP, HEAD + Math.max(h2, h3) + 4);
+  return canvas;
+}
+
+function download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 /* ---------------------------------------------------------------- 交互 */
