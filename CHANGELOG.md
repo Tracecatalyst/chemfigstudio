@@ -7,6 +7,34 @@
 
 ### Added
 
+- **Structure export (ADR-015)** — the tool could read real molecules but had no way out.
+  Three targets now share one `Skeleton → molblock` path:
+
+  | target | dependency | use |
+  |---|---|---|
+  | **molblock / SDF (V2000)** | **none** | hand to any chemistry app |
+  | **canonical SMILES** | RDKit | use as input elsewhere |
+  | **InChI** | RDKit | unique identifier, deduplication |
+
+  CLI: `chemfigstudio convert --skeleton "CCO" -o out.mol` (the extension picks the format).
+
+  Deliberate choices: molblock does not need RDKit (otherwise users without it could not
+  export anything); exported bond lengths are normalised to 1.5 Å rather than divided by a
+  fixed pixel constant (60 px and 300 px drawings would otherwise become 0.65 Å / 3.3 Å,
+  which is not chemistry); our own valence check runs **before** the RDKit round-trip, since
+  RDKit's sanitiser happily accepts a five-bonded carbon and would emit a wrong InChI — and a
+  wrong InChI is far more dangerous than an error, because it ends up in a database.
+
+### Fixed
+
+- **A molblock with an empty title could not be read back.** `parse_skeleton_input` called
+  `.strip()`, which ate the blank title line and shifted the "counts on line 4" convention,
+  producing "counts line unreadable". An empty title is valid molblock per the spec; the
+  molblock path now keeps the text intact while JSON and SMILES are still stripped.
+
+
+### Added
+
 - **Valence checking**: `Skeleton.valence_errors()` reports atoms whose bonds exceed the
   element's valence. Both entry points surface it — imports through `Structure2D.notes`,
   rendering through `SaveReport.warnings` (shown as ⚠ in the GUI).

@@ -7,6 +7,8 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -17,6 +19,8 @@ from chemfigstudio import render3d as render3d_mod
 from chemfigstudio import settings as settings_mod
 from chemfigstudio.smiles import resolve_name, resolve_smiles
 
+
+REPO = Path(__file__).resolve().parents[1]
 
 CJK = range(0x4E00, 0x9FFF)
 
@@ -233,7 +237,7 @@ class SmilesTests(unittest.TestCase):
 
 
 class LanguageTests(CliTestCase):
-    """语言切换必须覆盖 CLI 提示与错误信息。"""
+    """验收 16：语言切换必须覆盖 CLI 提示与错误信息。"""
 
     def tearDown(self):
         i18n.set_language("auto")
@@ -270,7 +274,7 @@ class LanguageTests(CliTestCase):
 
 
 class SettingsCommandTests(CliTestCase):
-    """settings 子命令。"""
+    """settings 子命令（验收 15）。"""
 
     def setUp(self):
         super().setUp()
@@ -326,3 +330,84 @@ class SettingsCommandTests(CliTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConvertCommandTests(unittest.TestCase):
+    """`chemfigstudio convert`：骨架 → molblock / SMILES / InChI（ADR-015）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def run_cli(self, *argv):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(REPO / "src")
+        return subprocess.run([sys.executable, "-m", "chemfigstudio.cli", "convert"]
+                              + list(argv),
+                              capture_output=True, text=True, env=env, timeout=180)
+
+    def test_infers_format_from_the_extension(self):
+        target = self.dir / "out.mol"
+        result = self.run_cli("--skeleton", "CCO", "-o", str(target))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = target.read_text(encoding="utf-8")
+        self.assertIn("V2000", text)
+        self.assertIn("M  END", text)
+
+    def test_writes_canonical_smiles(self):
+        target = self.dir / "out.smi"
+        result = self.run_cli("--skeleton", "OCC", "-o", str(target))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_text(encoding="utf-8").strip(), "CCO",
+                         "规范 SMILES 应当把 OCC 归一成 CCO")
+
+    def test_writes_inchi(self):
+        target = self.dir / "out.inchi"
+        result = self.run_cli("--skeleton", "CCO", "-o", str(target))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_text(encoding="utf-8").strip(),
+                         "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3")
+
+    def test_reads_molblock_from_a_file(self):
+        """往返：导出 molblock → 再从文件读回来 → 导出 InChI。"""
+        block = self.dir / "in.mol"
+        first = self.run_cli("--skeleton", "c1ccccc1", "-o", str(block))
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        inchi = self.dir / "out.inchi"
+        second = self.run_cli("--in", str(block), "-o", str(inchi))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertIn("InChI=1S/C6H6", inchi.read_text(encoding="utf-8"))
+
+    def test_prints_to_stdout_without_an_output_file(self):
+        result = self.run_cli("--skeleton", "CCO", "--format", "smiles")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "CCO")
+
+    def test_without_input_is_a_usage_error(self):
+        result = self.run_cli("-o", str(self.dir / "x.mol"))
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+
+    def test_both_inputs_at_once_is_a_usage_error(self):
+        result = self.run_cli("--in", str(self.dir / "a.mol"),
+                              "--skeleton", "CCO")
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+
+    def test_unknown_extension_is_rejected(self):
+        result = self.run_cli("--skeleton", "CCO", "-o", str(self.dir / "x.xyz"))
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+
+    def test_broken_valence_gives_a_readable_error(self):
+        """超价分子导出 InChI 时，错误要说清"先修价键"，而不是甩一个 None。"""
+        from chemfigstudio.skeleton import Skeleton
+
+        bad = Skeleton()
+        carbon = bad.add_atom("C", 0.0, 0.0)
+        for index in range(5):
+            hydrogen = bad.add_atom("H", 80.0 * (index + 1), 0.0)
+            bad.add_bond(carbon.id, hydrogen.id)
+        result = self.run_cli("--skeleton", bad.to_json(),
+                              "-o", str(self.dir / "x.inchi"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("价键", result.stderr)

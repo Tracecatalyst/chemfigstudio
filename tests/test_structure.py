@@ -613,3 +613,289 @@ class MissingRdkitTests(unittest.TestCase):
 
 if __name__ == "__main__":                                   # pragma: no cover
     unittest.main()
+
+
+class MolblockExportTests(unittest.TestCase):
+    """`Skeleton → molblock`（ADR-015）：**零依赖**那条路必须自己走通。
+
+    为什么强调零依赖：如果只有"InChI 导出"，没装 RDKit 的用户就完全交不出文件；
+    而 molblock 是事实标准，纯文本就能拼，没有理由不做。
+    """
+
+    def test_exports_v2000_header_and_end(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        block = structure.to_molblock(Skeleton.chain(3), title="propane")
+        lines = block.splitlines()
+        self.assertEqual(lines[0], "propane", "第一行是标题")
+        self.assertIn("V2000", lines[3], "第四行是计数行（第 3 行必须是空行）")
+        self.assertEqual(lines[2], "")
+        self.assertEqual(block.rstrip().splitlines()[-1], "M  END")
+
+    def test_atom_and_bond_counts_match(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton.chain(4)
+        block = structure.to_molblock(skeleton)
+        counts = block.splitlines()[3]
+        self.assertEqual(int(counts[0:3]), len(skeleton.atoms))
+        self.assertEqual(int(counts[3:6]), len(skeleton.bonds))
+
+    def test_round_trip_keeps_elements_and_orders(self):
+        """导出再导入，原子/键/键级都得回来（坐标允许有几像素误差）。"""
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        original = Skeleton.chain(4)
+        original.set_bond_order(original.atoms[1].id, original.atoms[2].id, 2)
+        again = structure.from_molblock(structure.to_molblock(original)).skeleton
+
+        self.assertEqual([a.element for a in again.atoms],
+                         [a.element for a in original.atoms])
+        self.assertEqual(sorted(b.order for b in again.bonds),
+                         sorted(b.order for b in original.bonds))
+
+    def test_round_trip_preserves_the_shape(self):
+        """往返**不保证坐标数值相同**，但必须保证形状相同。
+
+        为什么数值会变：导出时把分子归一化到标准键长 1.5 Å（否则别的软件读进去
+        会发现键长 0.65 Å 或 3.3 Å，那不是化学），导入时又归一化到 ``bond_px``。
+        所以往返是一次**等比缩放** —— 形状不变，尺寸变。
+        """
+        import math
+
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+        from chemfigstudio.structure import DEFAULT_BOND_PX
+
+        original = Skeleton.chain(5)
+        again = structure.from_molblock(structure.to_molblock(original)).skeleton
+
+        # 键长应当统一到 bond_px
+        for bond in again.bonds:
+            first, second = again.atom(bond.a), again.atom(bond.b)
+            length = math.dist((first.x, first.y), (second.x, second.y))
+            self.assertAlmostEqual(length, DEFAULT_BOND_PX, delta=1.0)
+
+        # 每个原子相对第一个原子的位移方向一致（等比缩放）
+        first_before, first_after = original.atoms[0], again.atoms[0]
+        scale = None
+        for before, after in zip(original.atoms[1:], again.atoms[1:]):
+            dx_before = before.x - first_before.x
+            dx_after = after.x - first_after.x
+            if abs(dx_before) > 10.0:
+                ratio = dx_after / dx_before
+                if scale is None:
+                    scale = ratio
+                self.assertAlmostEqual(ratio, scale, delta=0.02)
+
+    def test_exported_bond_lengths_are_chemical(self):
+        """导出的键长必须是**真实的化学尺度**（1.5 Å），不能是任意数字。"""
+        import math
+
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        # 故意造一个"画得很大"的分子：键长 300 像素
+        skeleton = Skeleton()
+        first = skeleton.add_atom("C", 0.0, 0.0)
+        second = skeleton.add_atom("C", 300.0, 0.0)
+        skeleton.add_bond(first.id, second.id)
+
+        block = structure.to_molblock(skeleton)
+        atom_lines = block.splitlines()[4:6]
+        x0 = float(atom_lines[0][0:10])
+        x1 = float(atom_lines[1][0:10])
+        self.assertAlmostEqual(abs(x1 - x0), 1.5, delta=0.01)
+
+    def test_round_trip_keeps_charge(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton.chain(2)
+        skeleton.atoms[-1].charge = -1
+        block = structure.to_molblock(skeleton)
+        self.assertIn("M  CHG", block)
+        again = structure.from_molblock(block).skeleton
+        self.assertEqual(again.atoms[-1].charge, -1)
+
+    def test_wedges_are_written_as_bond_stereo(self):
+        """楔形写成 molblock 的 bond stereo：1=实心（朝外），6=虚线（朝里）(ADR-015)。
+
+        ⚠️ 不要断言"读回来 wedge 一模一样"：导入时会按化学正确性
+        **重新判定窄端在哪一端**（`_normalise_wedges`），所以 up/down 可能互换、
+        端点可能对调 —— 那是同一个立体构型的两种写法，不是丢信息。
+        真正该验证的"化学等价"由 `InchiExportTests` 用手性分子来回测。
+        """
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import WEDGE_DOWN, WEDGE_UP, Skeleton
+
+        for wedge, code in ((WEDGE_UP, "1"), (WEDGE_DOWN, "6")):
+            with self.subTest(wedge=wedge):
+                skeleton = Skeleton.chain(3)
+                skeleton.bonds[0].wedge = wedge
+                block = structure.to_molblock(skeleton)
+                bond_line = block.splitlines()[4 + len(skeleton.atoms)]
+                # 行格式：a b order stereo ...
+                fields = bond_line.split()
+                self.assertEqual(fields[3], code)
+
+    def test_no_explicit_hydrogens_are_written(self):
+        """氢是隐含的 —— 导出时不写（ADR-015：结构式里氢不画）。"""
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        block = structure.to_molblock(Skeleton.chain(4))
+        self.assertNotIn(" H ", block)
+
+    def test_title_defaults_to_skeleton_title(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton.chain(3)
+        skeleton.title = "my molecule"
+        self.assertTrue(structure.to_molblock(skeleton).startswith("my molecule"))
+
+    def test_exported_block_is_reimportable_without_rdkit(self):
+        """零依赖保证：导出结果能被我们自己的解析器读回（那条路不用 RDKit）。"""
+        from unittest import mock
+
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        block = structure.to_molblock(Skeleton.chain(4))
+        with mock.patch.object(structure, "ensure_rdkit_path", return_value=[]):
+            with mock.patch.dict("sys.modules", {"rdkit": None, "rdkit.Chem": None}):
+                again = structure.from_molblock(block)
+        self.assertEqual(len(again.skeleton.atoms), len(Skeleton.chain(4).atoms))
+
+
+class InchiExportTests(unittest.TestCase):
+    """InChI / 规范 SMILES（需要 RDKit；没装就跳过）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        from chemfigstudio import smiles as smiles_mod
+        cls.available = smiles_mod.rdkit_available()
+
+    def setUp(self):
+        if not self.available:
+            self.skipTest("没装 RDKit（可选依赖）")
+
+    def test_ethanol_inchi_is_known(self):
+        from chemfigstudio import structure
+
+        result = structure.from_smiles("CCO")
+        self.assertEqual(structure.to_inchi(result.skeleton),
+                         "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3")
+
+    def test_benzene_inchi_is_known(self):
+        """芳香性必须正确还原 —— Kekulé 写进去、芳香性读出来。"""
+        from chemfigstudio import structure
+
+        result = structure.from_smiles("c1ccccc1")
+        self.assertEqual(structure.to_inchi(result.skeleton),
+                         "InChI=1S/C6H6/c1-2-4-6-5-3-1/h1-6H")
+
+    def test_aspirin_inchi_matches_itself(self):
+        """同一个分子经"导出 → 导入"后，InChI 必须不变（否则导出的不是同一个分子）。"""
+        from chemfigstudio import structure
+
+        original = structure.from_smiles("CC(=O)Oc1ccccc1C(=O)O")
+        block = structure.to_molblock(original.skeleton)
+        again = structure.from_molblock(block)
+        self.assertEqual(structure.to_inchi(again.skeleton),
+                         structure.to_inchi(original.skeleton))
+
+    def test_canonical_smiles(self):
+        from chemfigstudio import structure
+
+        result = structure.from_smiles("CCO")
+        self.assertEqual(structure.to_smiles(result.skeleton), "CCO")
+
+    def test_stereochemistry_survives_the_round_trip(self):
+        """L-丙氨酸的 InChI 要带上手性层（/t2-）。"""
+        from chemfigstudio import structure
+
+        original = structure.from_smiles("C[C@H](N)C(=O)O")
+        block = structure.to_molblock(original.skeleton)
+        again = structure.from_molblock(block)
+        inchi = structure.to_inchi(again.skeleton)
+        self.assertIn("/t2-", inchi, "手性层丢了：%s" % inchi)
+
+    def test_inchi_needs_rdkit(self):
+        from unittest import mock
+
+        from chemfigstudio import structure
+        from chemfigstudio.errors import ConfigError
+        from chemfigstudio.skeleton import Skeleton
+
+        with mock.patch.object(structure, "ensure_rdkit_path", return_value=[]):
+            with mock.patch.dict("sys.modules", {"rdkit": None, "rdkit.Chem": None}):
+                with self.assertRaises(ConfigError):
+                    structure.to_inchi(Skeleton.chain(4))
+
+    def test_molblock_still_works_without_rdkit(self):
+        """反向确认：molblock 导出**不能**因为 InChI 需要 RDKit 而跟着要 RDKit。"""
+        from unittest import mock
+
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        with mock.patch.object(structure, "ensure_rdkit_path", return_value=[]):
+            with mock.patch.dict("sys.modules", {"rdkit": None, "rdkit.Chem": None}):
+                block = structure.to_molblock(Skeleton.chain(4))
+        self.assertIn("M  END", block)
+
+
+class EmptyTitleMolblockTests(unittest.TestCase):
+    """标题为空的 molblock 必须能读回来。
+
+    踩过：`parse_skeleton_input` 里有个 `.strip()`，它把**空标题行**吃掉了，
+    于是"计数行在第 4 行"的整体错位，读自己刚导出的文件会报
+    "molblock 的计数行读不出来（第 4 行）"。
+
+    molblock 规范里标题行可以为空 —— 这是合法文件，不是畸形输入。
+    """
+
+    def test_exported_empty_title_starts_with_a_blank_line(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        block = structure.to_molblock(Skeleton.chain(3), title="")
+        self.assertTrue(block.startswith("\n"),
+                        "标题为空时第一行就该是空行：%r" % block[:40])
+
+    def test_from_molblock_accepts_empty_title(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        block = structure.to_molblock(Skeleton.chain(3), title="")
+        again = structure.from_molblock(block)
+        self.assertEqual(len(again.skeleton.atoms), len(Skeleton.chain(3).atoms))
+
+    def test_parse_skeleton_input_must_not_strip_a_molblock(self):
+        """这个断言直接盯着 strip 这个坑：首行空行必须保留下来。"""
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton, parse_skeleton_input
+
+        block = structure.to_molblock(Skeleton.chain(3), title="")
+        parsed = parse_skeleton_input(block)
+        self.assertEqual(len(parsed.atoms), len(Skeleton.chain(3).atoms))
+
+    def test_looks_like_molblock_rejects_json(self):
+        """JSON 骨架里有 `M  END` 这种字样也不能被当成 molblock。"""
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        payload = Skeleton.chain(3).to_json()
+        self.assertFalse(structure.looks_like_molblock(payload))
+
+    def test_looks_like_molblock_accepts_our_own_output(self):
+        from chemfigstudio import structure
+        from chemfigstudio.skeleton import Skeleton
+
+        self.assertTrue(structure.looks_like_molblock(
+            structure.to_molblock(Skeleton.chain(3))))

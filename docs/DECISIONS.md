@@ -364,3 +364,48 @@ Chrome `--app` 窗口（依赖用户装 Chrome，不算真应用）；Electron�
     旧的"只支持位图"说法，ADR 原文与 CHANGELOG 历史段豁免。
 * **备选**：继续只出 PNG（已被实际需求否掉）；用 `svgwrite`/`cairosvg` 另写一条通路
   （会引入新依赖，且两套坐标要各自维护，容易漂移）。
+
+## ADR-015：结构文件**双向**——新增 molblock / SMILES / InChI 导出（2026-10-17）
+
+**背景**：ADR-012 之后工具能**读**真实分子（SMILES/molblock/SDF，见 `structure.py`），
+但只能读、不能写。这意味着画出来的东西**出不去**：没法交给 ChemDraw、没法当
+PubChem/Avogadro 的输入、没法进数据库查重。"结构文件进出"缺的是后一半。
+
+**决策**：新增三个导出目标，共用一条 `Skeleton → molblock` 的核心路径：
+
+| 目标 | 依赖 | 用途 |
+|---|---|---|
+| **molblock / SDF（V2000）** | **零依赖**（纯文本拼装） | 交给任何化学软件 |
+| **规范 SMILES** | RDKit | 当输入、贴到别处 |
+| **InChI** | RDKit | 唯一标识符、数据库查重 |
+
+CLI 入口是 `chemfigstudio convert`，格式按输出扩展名推断
+（`.mol`/`.sdf` → molblock，`.smi` → SMILES，`.inchi` → InChI）。
+
+**理由**：
+* molblock 是事实标准（几乎所有化学软件都读），且能纯文本生成 —— 不该因为它
+  "需要 RDKit" 才提供，零依赖那条路必须自己走通。
+* SMILES/InChI 的规范化（canonicalization）是**算法问题**，不是画图问题；
+  自己实现等于重造轮子且几乎一定错，所以这两个明确依赖 RDKit（可选）。
+* InChI 是"这个分子是不是同一个"的答案，查重用得着；SMILES 是"怎么把它写出来"。
+
+**后果（诚实清单）**：
+* **不写显式氢**：我们的模型里氢是隐含的（这是结构式的本意）。molblock 只有重原子，
+  读入方按价键补氢 —— 合法且体积小，但**氢的坐标不存在**，所以不是 3D 结构。
+* **立体化学是"尽力而为"**：楔形写成 molblock 的 bond stereo（1=up，6=down），
+  依赖读入方按坐标+楔形推断手性。我们自己的 `known_stereo` 不写进文件（molblock
+  没有这个字段）。
+* **只写 V2000**：超过 999 个原子要 V3000，本项目不做（画图工具的分子没这么大）。
+* **芳香环写 Kekulé**：不写 RDKit 的芳香键类型（molblock V2000 也不直接支持）。
+  RDKit 读入时会 sanitize 回芳香性，所以 InChI 是对的。
+* **InChI 依赖 RDKit**：没装 RDKit 时 `to_inchi` 抛 `ConfigError`（可执行的安装提示），
+  而 `to_molblock` 仍然可用。
+* **InChI 有版本**：RDKit 默认出 1.06 版标准 InChI；比较时要注意版本一致。
+
+**备选**：
+* 手写 SMILES 生成器 —— 否决：规范化是算法问题，且芳香性/手性/电荷的表示
+  极易出错，错的方式还很隐蔽。
+* 只做 molblock 不做 InChI —— 否决：InChI 是查重场景的唯一答案，成本只有一行。
+* 用 `openbabel` —— 否决：新依赖（约 100 MB）且 RDKit 已在，功能重叠。
+
+---

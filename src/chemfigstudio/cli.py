@@ -22,14 +22,14 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import api, core, i18n
 from .errors import ConfigError, RenderError
 from . import settings as settings_mod
 
 __all__ = ["main", "build_parser", "VERSION"]
-VERSION = "0.4.3"
+VERSION = "0.2.0"
 
 
 class _CliExit(SystemExit):
@@ -167,6 +167,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="跳过 MMFF94 几何优化（更快，几何略糙）")
     r3.add_argument("--json", action="store_true", help=i18n.t("cli.opt.json"))
 
+    # convert ---------------------------------------------------------------
+    cv = sub.add_parser("convert", help=i18n.t("cli.cmd.convert"))
+    cv.add_argument("--in", dest="input", default="", metavar="FILE",
+                    help=i18n.t("cli.opt.in_file"))
+    cv.add_argument("--skeleton", default="", metavar="TEXT",
+                    help=i18n.t("cli.opt.inline"))
+    cv.add_argument("-o", "--out", default=None, metavar="FILE",
+                    help=i18n.t("cli.opt.out_convert"))
+    cv.add_argument("--format", default=None, choices=sorted(EXPORT_FORMATS),
+                    help=i18n.t("cli.opt.format"))
+    cv.add_argument("--json", action="store_true", help=i18n.t("cli.opt.json"))
+
     # doctor / gui / app ----------------------------------------------------
     sub.add_parser("doctor", help=i18n.t("cli.cmd.doctor"))
     g = sub.add_parser("gui", help=i18n.t("cli.cmd.gui"))
@@ -224,11 +236,98 @@ def _print_result(result, as_json: bool, stream=None) -> None:
         print("  " + i18n.t("cli.warn", message=warning), file=stream)
 
 
+#: 结构导出格式 → 输出文件的扩展名（ADR-015）。
+#: 自动按扩展名推断，所以命令行上通常不用写 --format。
+EXPORT_FORMATS: Dict[str, Tuple[str, ...]] = {
+    "molblock": (".mol", ".sdf", ".mdl"),
+    "smiles": (".smi", ".smiles"),
+    "inchi": (".inchi",),
+}
+
+
+def _format_from_extension(path: str) -> Optional[str]:
+    """按扩展名推断导出格式；认不出就返回 None（由调用方报错）。"""
+    lowered = path.lower()
+    for name, extensions in EXPORT_FORMATS.items():
+        if any(lowered.endswith(ext) for ext in extensions):
+            return name
+    return None
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    """``convert``：骨架 → molblock / SMILES / InChI（ADR-015）。
+
+    输入接受三种形态（复用 ``parse_skeleton_input``）：骨架 JSON、molblock/SDF、SMILES。
+    输出格式按 ``-o`` 的扩展名推断（``.mol``/``.sdf`` → molblock，``.smi`` → SMILES，
+    ``.inchi`` → InChI），所以日常用不到 ``--format``。
+    """
+    from . import structure as structure_mod
+    from .skeleton import parse_skeleton_input
+
+    if args.input and args.skeleton:
+        print(i18n.t("cli.err.convert_both"), file=sys.stderr)
+        return 3
+    if args.input:
+        try:
+            text = Path(args.input).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(i18n.t("cli.err.read_failed", path=args.input,
+                                                 error=str(exc)), file=sys.stderr)
+            return 3
+    else:
+        text = str(args.skeleton or "")
+    if not text.strip():
+        print(i18n.t("cli.err.convert_input"), file=sys.stderr)
+        return 3
+
+    target = args.out
+    wanted = args.format
+    if wanted is None and target:
+        wanted = _format_from_extension(target)
+    if wanted is None:
+        wanted = "molblock"                        # 最常见的用途：交给别的软件
+    if target and not args.format and _format_from_extension(target) is None:
+        print(i18n.t("cli.err.format_unknown", path=target), file=sys.stderr)
+        return 3
+
+    try:
+        skeleton = parse_skeleton_input(text)
+        if wanted == "molblock":
+            payload = structure_mod.to_molblock(skeleton)
+        elif wanted == "smiles":
+            payload = structure_mod.to_smiles(skeleton) + "\n"
+        else:
+            payload = structure_mod.to_inchi(skeleton) + "\n"
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+    except RenderError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    if target:
+        try:
+            Path(target).write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            print(i18n.t("cli.err.write_failed", path=target,
+                                                  error=str(exc)), file=sys.stderr)
+            return 3
+        if not args.json:
+            print(i18n.t("cli.msg.convert_ok", format=wanted, path=target))
+    elif not args.json:
+        sys.stdout.write(payload)
+
+    if args.json:
+        print(json.dumps({"ok": True, "format": wanted, "out": target,
+                          "payload": payload}, ensure_ascii=False))
+    return 0
+
+
 def _cmd_render3d(args: argparse.Namespace) -> int:
     """``render3d``：SMILES → 3D 构象文件（molblock/SDF）。
 
     出的是**几何数据**而不是位图 —— 3D 的绘制由 3D 查看器（3Dmol.js）负责，
-    服务端不自己写渲染（见 docs/DECISIONS.md 的 ADR-012）。
+    服务端不自己写渲染（见 docs/DECISIONS.md ADR-012）。
     """
     from . import render3d as render3d_mod
 
@@ -430,6 +529,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.cmd == "render3d":
         return _cmd_render3d(args)
+    if args.cmd == "convert":
+        return _cmd_convert(args)
 
     if getattr(args, "generated_kind", None):
         from . import api as api_mod

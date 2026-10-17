@@ -171,16 +171,22 @@ def parse_skeleton_input(text: str) -> "Skeleton":
     顺序很重要：先认 JSON，再认 molblock，最后才当 SMILES —— 因为 molblock 里
     也可能出现 ``{`` 之类字符，而 SMILES 里不会出现 ``M  END``。
     """
-    text = str(text or "").strip()
-    if not text:
+    raw = str(text or "")
+    if not raw.strip():
         return Skeleton.chain(4)
-    if text.startswith("{"):
-        return Skeleton.from_json(text)
+    stripped = raw.strip()
+    if stripped.startswith("{"):
+        return Skeleton.from_json(stripped)
     from .structure import from_molblock, from_smiles
+    from .structure import looks_like_molblock
 
-    looks_like_molblock = ("V2000" in text or "V3000" in text
-                           or "M  END" in text or "$$$$" in text)
-    result = from_molblock(text) if looks_like_molblock else from_smiles(text)
+    if looks_like_molblock(raw):
+        # ⚠️ **不能 strip**：molblock 的第一行是标题，可以为空。
+        # strip 会把那行空标题吃掉，于是"计数行在第 4 行"的约定整体错位
+        # （踩过：自己导出的空标题 molblock 读不回来，报"计数行读不出来"）。
+        result = from_molblock(raw)
+    else:
+        result = from_smiles(stripped)
     skeleton = result.skeleton
     if not skeleton.title:
         skeleton.title = result.title

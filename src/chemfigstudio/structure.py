@@ -32,11 +32,16 @@ from .skeleton import (
 from .smiles import ensure_rdkit_path, quiet_rdkit
 
 __all__ = ["Structure2D", "RDKIT_2D_HINT", "from_molblock", "from_smiles",
-           "molblock_to_skeleton", "DEFAULT_BOND_PX"]
+           "looks_like_molblock", "molblock_to_skeleton",
+           "to_molblock", "to_smiles", "to_inchi",
+           "DEFAULT_BOND_PX"]
 
 #: 导入时一根"标准键"对应的像素长度 —— 与 :data:`skeleton.DEFAULT_BOND_LENGTH` 一致，
 #: 这样导入的结构和手画的结构在同一张画布上比例相同（不会一个巨大一个极小）。
 DEFAULT_BOND_PX = 92.0
+
+#: 导出 molblock 时的标准键长（Å）。C–C 单键实测 1.54 Å，1.5 是通行近似值。
+STANDARD_BOND_ANGSTROM = 1.5
 
 RDKIT_2D_HINT = ("从 SMILES 导入需要 RDKit（它负责 2D 坐标生成与立体化学感知）。"
                  "安装：python3 -m pip install --target .pylibs rdkit numpy；"
@@ -196,6 +201,125 @@ def molblock_to_skeleton(block: str, *, bond_px: float = DEFAULT_BOND_PX,
 
     return Structure2D(skeleton=skeleton, title=title, source="molblock",
                        skipped_elements=sorted(set(skipped)), notes=notes)
+
+
+def to_molblock(skeleton: Skeleton, *, title: str = "",
+                bond_px: float = DEFAULT_BOND_PX) -> str:
+    """把骨架写成 V2000 molblock（**零依赖**，纯文本拼装，见 ADR-015）。
+
+    为什么零依赖很重要：只有 InChI 导出的话，没装 RDKit 的用户就完全交不出文件；
+    而 molblock 是事实标准，纯文本就能拼。
+
+    **不写显式氢**：氢在我们的模型里是隐含的（结构式的本意）。读入方按价键补氢，
+    合法且体积小 —— 但也意味着导出的不是 3D 结构（氢没有坐标）。
+
+    坐标：内部是"键长 ≈ ``bond_px`` 像素"，molblock 用 Å。这里除以 ``bond_px``，
+    读回来时 :func:`_scale_and_flip` 会按实际键长中位数归一化，正好还原。
+    """
+    from .skeleton import WEDGE_DOWN, WEDGE_UP
+
+    # 坐标归一化：**不能除以固定的 bond_px**。用户画的键长可能是 60 也可能是 300 像素，
+    # 固定除法会导出 0.65 Å 或 3.3 Å 这种非物理键长，别的软件读进去分子会挤成一团或散开。
+    # 正确做法：按**实际键长中位数**归一化到标准键长 1.5 Å（C–C 单键 1.54 Å）。
+    lengths: List[float] = []
+    for bond in skeleton.bonds:
+        first, second = skeleton.atom(bond.a), skeleton.atom(bond.b)
+        if first and second:
+            lengths.append(((second.x - first.x) ** 2
+                            + (second.y - first.y) ** 2) ** 0.5)
+    typical = sorted(lengths)[len(lengths) // 2] if lengths else 0.0
+    # 单个原子（没有键）时没有尺度可言 —— 退回 bond_px，至少形状可控
+    factor = (STANDARD_BOND_ANGSTROM / typical) if typical > 1e-6 \
+        else (1.0 / (float(bond_px) if bond_px > 1e-6 else DEFAULT_BOND_PX))
+    lines = [title or skeleton.title or "", "     chemfigstudio", "",
+             "%3d%3d  0  0  0  0  0  0  0  0999 V2000"
+             % (len(skeleton.atoms), len(skeleton.bonds))]
+
+    for atom in skeleton.atoms:
+        lines.append("%10.4f%10.4f%10.4f %-3s 0  0  0  0  0  0  0  0  0  0  0  0"
+                     % (atom.x * factor,
+                        -atom.y * factor,          # y 轴翻回去（molblock +y 向上）
+                        0.0, atom.element))
+
+    index = {atom.id: position + 1 for position, atom in enumerate(skeleton.atoms)}
+    for bond in skeleton.bonds:
+        # 注意别叫 first/second —— 上面算键长时那两个名字是 Atom，
+        # mypy 会顺着推断出类型冲突。
+        start, end = index.get(bond.a), index.get(bond.b)
+        if start is None or end is None:
+            continue
+        stereo = 0
+        if bond.wedge == WEDGE_UP:
+            stereo = 1
+        elif bond.wedge == WEDGE_DOWN:
+            stereo = 6
+        lines.append("%3d%3d%3d%3d  0  0  0" % (start, end, bond.order, stereo))
+
+    # 形式电荷：M  CHG  n  atom chg ...（一行最多 8 对）
+    charged = [(index[atom.id], atom.charge) for atom in skeleton.atoms
+               if atom.charge and atom.id in index]
+    for start in range(0, len(charged), 8):
+        chunk = charged[start:start + 8]
+        lines.append("M  CHG%3d" % len(chunk)
+                     + "".join("%4d%4d" % (atom_index, charge)
+                               for atom_index, charge in chunk))
+
+    lines.append("M  END")
+    return "\n".join(lines) + "\n"
+
+
+def _rdkit_mol_from_skeleton(skeleton: Skeleton):
+    """骨架 → RDKit Mol。需要 RDKit；sanitize 失败时给出**可读**的原因。"""
+    # **先用自己的价键检查**，别指望 RDKit 兜底：实测 RDKit 的 sanitize 对
+    # "碳连 5 根键"这种超价相当宽容，会默默产出一个化学上不成立的分子，
+    # 然后 InChI 也是错的（错的 InChI 比报错危险得多 —— 它会进数据库）。
+    issues = skeleton.valence_errors()
+    if issues:
+        raise RenderError(
+            "这个骨架有价键问题，没法导出结构文件：%s。请先修好价键。"
+            % "；".join(issue.text() for issue in issues))
+
+    ensure_rdkit_path()
+    try:
+        from rdkit import Chem
+    except ImportError as exc:                       # pragma: no cover - 环境问题
+        raise ConfigError(RDKIT_2D_HINT) from exc
+
+    with quiet_rdkit():
+        mol = Chem.MolFromMolBlock(to_molblock(skeleton), sanitize=True)
+    if mol is None:
+        raise RenderError("RDKit 无法解析这个骨架（可能是芳香性或价键不成立）")
+    return mol
+
+
+def to_smiles(skeleton: Skeleton) -> str:
+    """骨架 → **规范** SMILES（需要 RDKit，见 ADR-015）。
+
+    规范化是算法问题，不是画图问题 —— 自己实现几乎一定错，且错得隐蔽。
+    """
+    ensure_rdkit_path()
+    try:
+        from rdkit import Chem
+    except ImportError as exc:                       # pragma: no cover
+        raise ConfigError(RDKIT_2D_HINT) from exc
+    return Chem.MolToSmiles(_rdkit_mol_from_skeleton(skeleton))
+
+
+def to_inchi(skeleton: Skeleton) -> str:
+    """骨架 → InChI（需要 RDKit，见 ADR-015）。
+
+    InChI 回答"这是不是同一个分子"，用来查重；注意它带版本号（RDKit 出 1.06）。
+    """
+    ensure_rdkit_path()
+    try:
+        from rdkit.Chem import inchi as _inchi
+    except ImportError as exc:                       # pragma: no cover
+        raise ConfigError(RDKIT_2D_HINT) from exc
+    with quiet_rdkit():
+        value = _inchi.MolToInchi(_rdkit_mol_from_skeleton(skeleton))
+    if not value:
+        raise RenderError("RDKit 没能生成 InChI（这个骨架可能不合法）")
+    return value
 
 
 def _normalise_wedges(skeleton: Skeleton, stereo: Optional[set] = None) -> None:
@@ -367,6 +491,19 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
     # **不要把 SMILES 当标题**：它是表达式不是名字。曾经这里填了 SMILES，
     # 于是对照页/预览图顶上印着 "C1CCCCC1" —— 要显示名字请显式传 title。
     return result
+
+
+def looks_like_molblock(text: str) -> bool:
+    """这段文本像不像 molblock/SDF？
+
+    判定顺序很重要：JSON（`{`）要先被排除，SMILES 里不会出现 `M  END`，
+    而 molblock 里可能含有 `{` 之类字符。
+    """
+    probe = str(text or "")
+    if probe.lstrip().startswith("{"):
+        return False
+    return any(marker in probe
+               for marker in ("V2000", "V3000", "M  END", "$$$$"))
 
 
 def from_molblock(text: str, *, bond_px: float = DEFAULT_BOND_PX,

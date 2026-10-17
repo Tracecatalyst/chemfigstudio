@@ -30,6 +30,7 @@
 | — | 杂原子标签按**价键环境**推断（咖啡因的 N 不再写成 `NH₂`） | 银 | `CHANGELOG.md` |
 | — | 默认就能找到 RDKit（搜索深度 4→8） | 金 | `CHANGELOG.md` |
 | ③ | **价键检查**（超价报警，欠价不报、电荷修正、未知元素跳过） | 金 | `skeleton.py::Skeleton.valence_errors` · `tests/test_skeleton.py::ValenceTests` |
+| ④ | **结构导出**：molblock（零依赖）/ 规范 SMILES / InChI | 银 | ADR-015 · `structure.py::to_molblock` · `cli.py::_cmd_convert` |
 
 核实命令：
 
@@ -51,14 +52,6 @@ ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
   - 风险：会改渲染输出 → 必须逐字节比对 6 张示例图
 
 ### 银 —— 让"画出来的分子"能交换
-
-- [ ] **④ InChI 导出**（还有规范 SMILES）
-  - 现状：无 `InChI` 字样
-  - 成本最低的一项：RDKit 一行，但需要 ADR（新导出格式）
-
-- [ ] **molblock 反向导出**（把骨架存成 `.mol` 给别的软件）
-  - 现状：只有"读"，没有"写"；`MolToMolBlock` 只用于 3D 内部
-  - 这是"结构文件进出"缺的后一半 —— 现在只能进不能出
 
 - [ ] **标签排版**：长标签（`CH_{3}`）会盖住原子圆点
   - 现状：圆点按标签宽度放大了，但没做"标签放在圆点外侧"的排布
