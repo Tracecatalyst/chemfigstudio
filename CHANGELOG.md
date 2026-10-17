@@ -5,6 +5,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chinese titles rendered as a `□`** — content loss, not just an ugly glyph. The cause was
+  that `core.py` used Arial only, and Arial has no CJK glyphs. Every example figure has an
+  English title, which is why this never showed up.
+
+  The fix switches fonts **on demand** rather than switching everything to a CJK face (which
+  would have changed the look of every existing output):
+
+  * `core.needs_cjk(text)` matches only real CJK code points (han, kana, full-width
+    punctuation). It deliberately **excludes** `→`, `Δ`, `×`, `−`, `₂` — Arial has those, and
+    swapping fonts for them would alter existing figures.
+  * `core.font_for_text(font, text)` returns a same-size CJK font when needed and the
+    original font otherwise. Wiring it into `draw_rich`, `draw_rich_centred` and `text_width`
+    covered every call site — **none of the dozens of `core.fonts(...)` calls changed**.
+  * Font candidates: STHeiti / Hiragino Sans GB / Songti (macOS), Noto Sans CJK / WenQuanYi
+    (Linux), Microsoft YaHei (Windows), overridable via `CHEMFIG_FONT_CJK`. If no CJK font is
+    available it falls back to Arial — a missing CJK face must not fail the whole render.
+
+  Two rounds of "still a square" after the first fix, both because the font gets rebuilt
+  downstream: `canvas.Surface._scaled_font()` rebuilt by `(size, bold)` and dropped the CJK
+  flag (now carried in the `FontBook` metadata), and `skeleton_figure`'s title draws with a
+  bare `draw.text` that bypasses `draw_rich` (now wired separately).
+
+  The English path is untouched: all six example figures stay byte-identical.
+
+
 ### Added
 
 - **Aromatic rings rendered as circles** — new `rings` parameter on the `skeleton` figure,

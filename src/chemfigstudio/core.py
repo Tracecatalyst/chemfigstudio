@@ -45,7 +45,7 @@ CHAIN_DY: int = 50   # 锯齿链垂直步长（px）
 BOND_WIDTH: int = 5
 CROP_MARGIN: int = 26
 SVG_FONT_FAMILY: str = "Arial, Helvetica, sans-serif"
-DPI_TARGET_LONGEST: int = 3000   # 300 dpi 时输出最长边约 3000 px（契约）
+DPI_TARGET_LONGEST: int = 3000   # 300 dpi 时输出最长边约 3000 px（契约验收 8）
 
 _SUB_DOWN = 0.26     # 下标基线偏移量（× 主字号）
 _SUB_UP = 0.34       # 上标基线偏移量（× 主字号）
@@ -65,6 +65,51 @@ BOLD_FONT_CANDIDATES: Tuple[Path, ...] = (
     Path("/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf"),
     Path("C:/Windows/Fonts/arialbd.ttf"),
 )
+#: 中文（CJK）字体候选。**只在文本里真的含 CJK 字符时才用** —— 英文仍走 Arial，
+#: 这样既有输出（6 张示例图）逐字节不变。
+#:
+#: 为什么需要它：Arial 没有中文字形，中文标题会渲染成一个 ``□``（空心方块）。
+#: 那不是"字体难看"，是**内容丢失** —— 用户看不到自己写的标题。
+CJK_FONT_CANDIDATES: Tuple[Path, ...] = (
+    Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+    Path("/System/Library/Fonts/STHeiti Light.ttc"),
+    Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+    Path("/System/Library/Fonts/Supplemental/Songti.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+    Path("C:/Windows/Fonts/msyh.ttc"),
+)
+CJK_BOLD_FONT_CANDIDATES: Tuple[Path, ...] = (
+    Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+    Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+    Path("C:/Windows/Fonts/msyhbd.ttc"),
+)
+ENV_FONT_CJK = "CHEMFIG_FONT_CJK"
+
+#: 真正需要中文字体的码位区间。**故意不含箭头（→）、希腊字母（Δ）、
+#: 数学符号（×、−、₂）** —— 那些 Arial 有，切字体反而会改变既有输出的观感。
+CJK_RANGES: Tuple[Tuple[int, int], ...] = (
+    (0x2E80, 0x2EFF),      # CJK 部首补充
+    (0x3040, 0x30FF),      # 日文平假名/片假名
+    (0x3400, 0x4DBF),      # 统一表意文字扩展 A
+    (0x4E00, 0x9FFF),      # 统一表意文字
+    (0xF900, 0xFAFF),      # 兼容表意文字
+    (0xFF00, 0xFFEF),      # 全角字符（中文标点 ，：；）
+    (0x3000, 0x303F),      # CJK 标点（。、「」）
+)
+
+
+def needs_cjk(text: str) -> bool:
+    """这段文本里有没有必须用中文字体才能显示的字符？"""
+    for character in str(text or ""):
+        code = ord(character)
+        for low, high in CJK_RANGES:
+            if low <= code <= high:
+                return True
+    return False
+
+
 #: 允许用环境变量强制指定字体（移植到别的机器/CI 时很有用）。
 ENV_FONT = "CHEMFIG_FONT"
 ENV_FONT_BOLD = "CHEMFIG_FONT_BOLD"
@@ -79,15 +124,18 @@ class FontBook:
     """
 
     def __init__(self) -> None:
-        self._cache: Dict[Tuple[int, bool], ImageFont.FreeTypeFont] = {}
-        self._meta: Dict[int, Tuple[int, bool]] = {}     # id(font) -> (size, bold)
+        self._cache: Dict[Tuple[int, bool, bool], ImageFont.FreeTypeFont] = {}
+        #: id(font) -> (size, bold, cjk)。**cjk 一定要记**：否则画布缩放时
+        #: 按 (size, bold) 重建字体，会把中文字体悄悄换回 Arial（踩过）。
+        self._meta: Dict[int, Tuple[int, bool, bool]] = {}
 
-    def get(self, size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-        key = (int(size), bool(bold))
+    def get(self, size: int, bold: bool = False,
+            cjk: bool = False) -> ImageFont.FreeTypeFont:
+        key = (int(size), bool(bold), bool(cjk))
         if key not in self._cache:
-            font = resolve_font(*key)
+            font = resolve_font(int(size), bool(bold), cjk=bool(cjk))
             self._cache[key] = font
-            self._meta[id(font)] = key
+            self._meta[id(font)] = (int(size), bool(bold), bool(cjk))
         return self._cache[key]
 
     def clear(self) -> None:
@@ -98,8 +146,13 @@ class FontBook:
         """返回字体的 (size, bold)；查不到就用 font.size 兜底。"""
         found = self._meta.get(id(font))
         if found:
-            return found
+            return (found[0], found[1])
         return (int(getattr(font, "size", 24)), False)
+
+    def is_cjk(self, font: ImageFont.FreeTypeFont) -> bool:
+        """这个字体是不是中文字体？（画布缩放时要靠它别把字体换回去）"""
+        found = self._meta.get(id(font))
+        return bool(found[2]) if found else False
 
 
 def _first_existing(paths: Iterable[Path]) -> Optional[Path]:
@@ -112,8 +165,24 @@ def _first_existing(paths: Iterable[Path]) -> Optional[Path]:
     return None
 
 
-def resolve_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
-    """定位并加载字体；找不到时抛 RuntimeError（附排查提示）。"""
+def resolve_font(size: int, bold: bool = False,
+                 cjk: bool = False) -> ImageFont.FreeTypeFont:
+    """定位并加载字体；找不到时抛 RuntimeError（附排查提示）。
+
+    ``cjk=True`` 走中文字体（只有文本真的含中文时才会用到）。
+    """
+    if cjk:
+        env_cjk = os.environ.get(ENV_FONT_CJK)
+        cjk_candidates: Tuple[Path, ...] = (
+            ((Path(env_cjk),) if env_cjk else ())
+            + (CJK_BOLD_FONT_CANDIDATES if bold else CJK_FONT_CANDIDATES))
+        path = _first_existing(cjk_candidates)
+        if path is not None:
+            return ImageFont.truetype(str(path), size)
+        # 没有中文字体就退回 Arial：中文仍会变方块，但英文/数字至少正常，
+        # **不能因为缺中文字体就让整张图渲染失败**。
+        return resolve_font(size, bold, cjk=False)
+
     env = os.environ.get(ENV_FONT_BOLD if bold else ENV_FONT)
     candidates: Tuple[Path, ...] = (
         (Path(env),) if env else ()
@@ -138,9 +207,24 @@ def resolve_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
 _FONTS = FontBook()
 
 
-def fonts(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+def fonts(size: int, bold: bool = False,
+          cjk: bool = False) -> ImageFont.FreeTypeFont:
     """模块级字体缓存的简写：``fonts(27, True)``。"""
-    return _FONTS.get(size, bold)
+    return _FONTS.get(size, bold, cjk)
+
+
+def font_for_text(font: ImageFont.FreeTypeFont,
+                  text: str) -> ImageFont.FreeTypeFont:
+    """文本含中文时换成**同字号**的中文字体，否则原样返回。
+
+    这是"零调用点改动"的关键：所有标题都经过 :func:`draw_rich` /
+    :func:`draw_rich_centred` / :func:`text_width`，在这三处统一换字体即可，
+    不必改几十个 ``core.fonts(...)`` 调用。
+    """
+    if not needs_cjk(text):
+        return font
+    size, bold = _FONTS.meta(font)
+    return _FONTS.get(size, bold, True)
 
 
 def font_meta(font: Optional[ImageFont.FreeTypeFont]) -> Tuple[int, bool]:
@@ -148,6 +232,13 @@ def font_meta(font: Optional[ImageFont.FreeTypeFont]) -> Tuple[int, bool]:
     if font is None:
         return (0, False)
     return _FONTS.meta(font)
+
+
+def font_is_cjk(font: Optional[ImageFont.FreeTypeFont]) -> bool:
+    """这个字体是不是中文字体（缩放时要原样带过去）。"""
+    if font is None:
+        return False
+    return _FONTS.is_cjk(font)
 
 
 def dpi_scale(width: int, height: int, dpi: Optional[int],
@@ -209,27 +300,39 @@ def parse_markup(text: str) -> List[Tuple[str, str]]:
 
 def text_width(draw: "ImageDraw.ImageDraw", text: str,
                font: ImageFont.FreeTypeFont, sub_font: ImageFont.FreeTypeFont) -> float:
-    """带上下标文本的渲染宽度。"""
+    """带上下标文本的渲染宽度。
+
+    注意：宽度必须用**即将真正绘制用的那个字体**来算。中文走中文字体时字形宽度
+    与 Arial 不同（实测 "Benzene" 是 107 vs 113），用错字体会让居中偏掉。
+    """
     total = 0.0
     for kind, chunk in parse_markup(text):
-        total += draw.textlength(chunk, font=(font if kind == "n" else sub_font))
+        piece = font if kind == "n" else sub_font
+        total += draw.textlength(chunk, font=font_for_text(piece, chunk))
     return total
 
 
 def draw_rich(draw: "ImageDraw.ImageDraw", x: float, y: float, text: str,
               font: ImageFont.FreeTypeFont, sub_font: ImageFont.FreeTypeFont,
               fill: Tuple[int, int, int] = INK) -> float:
-    """绘制带 ``_{}`` / ``^{}`` 的文本，返回结束处的 x。"""
+    """绘制带 ``_{}`` / ``^{}`` 的文本，返回结束处的 x。
+
+    每个 chunk 单独决定字体（见 :func:`font_for_text`）：同一个标题里
+    "苯 Benzene" 这种混排，中文那截走中文字体、英文那截仍走 Arial。
+    """
     for kind, chunk in parse_markup(text):
         if kind == "_":
-            draw.text((x, y + font.size * _SUB_DOWN), chunk, font=sub_font, fill=fill)
-            x += draw.textlength(chunk, font=sub_font)
+            piece = font_for_text(sub_font, chunk)
+            draw.text((x, y + font.size * _SUB_DOWN), chunk, font=piece, fill=fill)
+            x += draw.textlength(chunk, font=piece)
         elif kind == "^":
-            draw.text((x, y - font.size * _SUB_UP), chunk, font=sub_font, fill=fill)
-            x += draw.textlength(chunk, font=sub_font)
+            piece = font_for_text(sub_font, chunk)
+            draw.text((x, y - font.size * _SUB_UP), chunk, font=piece, fill=fill)
+            x += draw.textlength(chunk, font=piece)
         else:
-            draw.text((x, y), chunk, font=font, fill=fill)
-            x += draw.textlength(chunk, font=font)
+            piece = font_for_text(font, chunk)
+            draw.text((x, y), chunk, font=piece, fill=fill)
+            x += draw.textlength(chunk, font=piece)
     return x
 
 
@@ -434,7 +537,7 @@ def render_figure(kind: str, out, size: Tuple[int, int], paint, *,
                   transparent: bool = False, margin: int = CROP_MARGIN):
     """两遍渲染：先按 1:1 量出裁切后的内容尺寸，再按 DPI 目标像素重绘。
 
-    这样"300 dpi"意味着**输出最长边约 3000 px**（契约），
+    这样"300 dpi"意味着**输出最长边约 3000 px**（契约验收 8），
     而且是重新绘制（字体、线宽都跟着放大），不是把位图插值拉大。
     """
     wanted = tuple(str(f).lower().lstrip(".") for f in formats) or ("png",)
@@ -467,7 +570,7 @@ def save_figure(target, path: os.PathLike, *, crop: bool = True,
     """保存画布：主路径 + ``formats`` 里要求的其它格式。
 
     * ``target`` 可以是 :class:`chemfigstudio.canvas.Surface`，也可以是 PIL 图像（向后兼容）
-    * ``crop=True``：按墨迹包围盒裁边，PNG 与 SVG 使用**同一取景**
+    * ``crop=True``：按墨迹包围盒裁边，PNG 与 SVG 使用**同一取景**（验收 11）
     * ``transparent=True``：PNG 把纯白像素设为透明；SVG 本来无背景；PDF 保持白底
     """
     surface = target if hasattr(target, "image") else new_surface_from_image(target)

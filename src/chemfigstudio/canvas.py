@@ -1,14 +1,14 @@
 """chemfigstudio.canvas — 双后端画布：一份绘制指令，同时产出位图与矢量。
 
-为什么这样设计（契约–11）：
+为什么这样设计（契约验收 8–11）：
 
-* PNG / PDF 用位图（Pillow）；**SVG 必须是真文本**（文字可选中，不是路径）
+* PNG / PDF 用位图（Pillow）；**SVG 必须是真文本**（验收 9：文字可选中，不是路径）
 * 两个后端共用**同一套坐标与字体度量**（度量取自 Pillow 字体），
-  所以三种格式的图元位置偏差 < 1%
+  所以三种格式的图元位置偏差 < 1%（验收 11）
 * 贴边检测、行重叠自检、自动裁边**继续用位图**做 —— 逻辑一个字没改，零回归风险
 
 高分辨率：``Surface(w, h, scale=2)`` 把所有坐标与字号乘 ``scale``，
-即"重新绘制成更大的图"，而不是把位图插值放大。
+即"重新绘制成更大的图"，而不是把位图插值放大（验收 8）。
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ class Surface:
                                background if not isinstance(background, str) else core.WHITE)
         self._draw = ImageDraw.Draw(self.image)
         self._svg: Optional[List[str]] = [] if svg else None
-        self._font_cache: Dict[Tuple[int, bool], ImageFont.FreeTypeFont] = {}
+        self._font_cache: Dict[Tuple[int, bool, bool], ImageFont.FreeTypeFont] = {}
 
     # ------------------------------------------------------------------ 兼容层
     @classmethod
@@ -92,9 +92,12 @@ class Surface:
         if font is None:
             return None
         size, bold = core.font_meta(font)
-        key = (max(1, int(round(size * self.scale))), bold)
+        # **必须带上 cjk 标记**：否则按 (size, bold) 重建时会把中文字体换回 Arial，
+        # 中文标题就又变方块了（踩过：core 里改完还是方块，根因在这里）。
+        cjk = core.font_is_cjk(font)
+        key = (max(1, int(round(size * self.scale))), bold, cjk)
         if key not in self._font_cache:
-            self._font_cache[key] = core.fonts(key[0], key[1])
+            self._font_cache[key] = core.fonts(key[0], key[1], key[2])
         return self._font_cache[key]
 
     def _add(self, element: str) -> None:
@@ -160,7 +163,7 @@ class Surface:
     # ------------------------------------------------------------------ 输出
     def to_svg(self, view_box: Optional[Sequence[float]] = None,
                width: Optional[int] = None, height: Optional[int] = None) -> str:
-        """生成 SVG 文本；``view_box`` 用于与 PNG 完全一致的取景。"""
+        """生成 SVG 文本；``view_box`` 用于与 PNG 完全一致的取景（验收 11）。"""
         if view_box:
             vb = "%.2f %.2f %.2f %.2f" % tuple(view_box)
         else:

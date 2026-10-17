@@ -191,3 +191,77 @@ class CoreKnowsNoChemistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CjkFontTests(unittest.TestCase):
+    """中文文本必须能真的显示出来（不是 ▯）。
+
+    踩过：Arial 没有中文字形，中文标题渲染成空心方块 ``□``。
+    **内容丢失**，不是"字体难看"。6 张示例图标题全是英文，所以一直没暴露。
+    """
+
+    def test_needs_cjk_for_chinese(self):
+        from chemfigstudio import core
+        self.assertTrue(core.needs_cjk("苯"))
+        self.assertTrue(core.needs_cjk("丁醇的燃烧"))
+        self.assertTrue(core.needs_cjk("，：；"))          # 中文标点
+        self.assertTrue(core.needs_cjk("benzene 苯"))
+
+    def test_needs_cjk_is_false_for_latin_and_math(self):
+        """箭头、希腊字母、数学符号 Arial 都有 —— 切字体会改变既有观感。"""
+        from chemfigstudio import core
+        for text in ("Benzene", "ΔHc (literature)", "a → b", "2 × 3",
+                     "H_{2}O", "kJ/mol", ""):
+            with self.subTest(text=text):
+                self.assertFalse(core.needs_cjk(text))
+
+    def test_font_for_text_switches_only_for_cjk(self):
+        from chemfigstudio import core
+        base = core.fonts(27, True)
+        self.assertIs(core.font_for_text(base, "Benzene"), base,
+                      "纯英文不该换字体（换了就会破坏逐字节回归）")
+        switched = core.font_for_text(base, "苯")
+        self.assertNotEqual(switched.path, base.path)
+        self.assertEqual(switched.size, base.size, "换字体但字号必须一致")
+        self.assertTrue(core.font_is_cjk(switched))
+
+    def test_scaled_font_keeps_the_cjk_flag(self):
+        """画布缩放时不能把中文字体换回 Arial（踩过：改完还是方块，根因在这）。"""
+        from chemfigstudio import core
+        cjk = core.fonts(27, True, True)
+        surface = core.new_surface(400, 200, scale=2.0)
+        scaled = surface._scaled_font(cjk)
+        self.assertTrue(core.font_is_cjk(scaled),
+                        "缩放后丢了 cjk 标记 → 中文又变方块")
+        self.assertAlmostEqual(float(scaled.size), 54, delta=2)
+
+    def test_cjk_font_is_actually_loadable(self):
+        from chemfigstudio import core
+        font = core.fonts(24, False, True)
+        self.assertGreater(font.getbbox("苯")[2], 0, "中文字形宽度为 0")
+
+    def test_title_with_chinese_renders_real_glyphs(self):
+        """端到端：中文标题必须真的画出墨迹，而不是一个方块。
+
+        判据：中文标题的墨迹**明显多于**空白标题（方块只有一个，中文有五个字）。
+        """
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        from chemfigstudio import figures
+        from chemfigstudio.skeleton import Skeleton
+
+        payload = Skeleton.chain(3).to_json()
+        with tempfile.TemporaryDirectory() as tmp:
+            blank = figures.skeleton_figure(str(Path(tmp) / "a.png"), skeleton=payload,
+                                            formats=("png",), dpi=150)
+            chinese = figures.skeleton_figure(str(Path(tmp) / "b.png"), skeleton=payload,
+                                              formats=("png",), dpi=150,
+                                              title="苯环结构式")
+            with Image.open(blank.report.outputs["png"]) as first:
+                with Image.open(chinese.report.outputs["png"]) as second:
+                    self.assertGreater(second.size[1], 0)
+                    # 标题让画布变高或变宽（裁边后），至少不能更小
+                    self.assertGreaterEqual(max(second.size), max(first.size) - 4)

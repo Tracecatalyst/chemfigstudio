@@ -591,8 +591,11 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
     if title or scene.molecules[0].title:
         text = title or scene.molecules[0].title
         font = core.fonts(24, True)
-        draw.text(((width - core.text_width(draw, text, font, font)) / 2, 22), text,
-                  font=font, fill=INK)
+        # 标题可能含中文：font_for_text 会在需要时换成中文字体
+        # （同字号，宽度也用同一字体算，否则居中会偏）
+        title_font = core.font_for_text(font, text)
+        draw.text(((width - core.text_width(draw, text, title_font, title_font)) / 2, 22),
+                  text, font=title_font, fill=INK)
 
     report = core.save_figure(surface, out, formats=formats, dpi=dpi, transparent=transparent)
 
