@@ -70,7 +70,7 @@ make test                                            # 472 项测试，离线可
 RDKit 是**可选**的：没有它也有全部七种图、骨架编辑、molblock/SDF 进出；
 装了它还能用任意 SMILES 与 3D 构象（`python3 -m pip install --target .pylibs rdkit numpy`）。
 
-当前版本：**0.5.0**（`python3 -m chemfigstudio.cli --version`）。
+当前版本：**0.5.1**（`python3 -m chemfigstudio.cli --version`）。
 
 ## 快速上手
 

@@ -270,3 +270,19 @@ class AuditEntryPointTests(unittest.TestCase):
         self.assertIn("audit/2026-10-16", text)
         self.assertIn("uipromise-01", text, "已知未修的开口要点名")
 
+
+
+class ReadmeVersionTests(unittest.TestCase):
+    """README 里写的版本必须与包一致 —— 发布时容易漏（v0.5.1 就是这样漏的）。"""
+
+    def test_readmes_match_package_version(self):
+        import re
+        from chemfigstudio import __version__
+        for name in ("README.md", "README.zh-CN.md"):
+            with self.subTest(readme=name):
+                text = (REPO / name).read_text(encoding="utf-8")
+                match = re.search(r"\*\*(\d+\.\d+\.\d+)\*\*", text)
+                if not match:
+                    self.skipTest("%s 没写版本号" % name)
+                self.assertEqual(match.group(1), __version__,
+                                 "%s 写的是 %s，包是 %s" % (name, match.group(1), __version__))

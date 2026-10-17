@@ -79,7 +79,7 @@ RDKit is optional: without it you still get all seven figure types, skeletal edi
 molblock/SDF in and out; with it you also get arbitrary SMILES and the 3D conformer
 (`python3 -m pip install --target .pylibs rdkit numpy`).
 
-Current version: **0.5.0** (`python3 -m chemfigstudio.cli --version`).
+Current version: **0.5.1** (`python3 -m chemfigstudio.cli --version`).
 
 ## Quick start
 
