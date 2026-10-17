@@ -269,3 +269,4 @@ class AuditEntryPointTests(unittest.TestCase):
         text = self.DOC.read_text(encoding="utf-8")
         self.assertIn("audit/2026-10-16", text)
         self.assertIn("uipromise-01", text, "已知未修的开口要点名")
+
