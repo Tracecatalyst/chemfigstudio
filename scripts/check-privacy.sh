@@ -32,7 +32,7 @@ if [ -n "$bad_authors" ]; then
   ip_authors=$(echo "$bad_authors" | grep -cE '<[^>]*@[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+>' || true)
   if [ "$ip_authors" -gt 0 ]; then
     err "有 commit 用**本机 IP** 作邮箱 —— 这是明文泄露内网地址，且已随 commit 公开"
-    echo "     修：改写历史（见 docs/SECURITY.md），光改 git config 不会追认"
+    echo "     修：改写历史（git filter-branch），光改 git config 不会追认"
   else
     warn "有 commit 没用 GitHub noreply 身份（不一定错，但公开前确认一下）"
   fi
@@ -77,7 +77,7 @@ echo
 # --- 5) 内部上下文（不一定是隐私，但读者会困惑） ----------------------------
 echo "── 5/5 内部上下文残留 ──"
 hits=$(git grep -nE '验收 [0-9]+|req-gate|01-课程|02_图表|BCD_副本|作业目录' -- . 2>/dev/null \
-       | grep -v 'check-privacy.sh' | grep -v 'docs/SECURITY.md' || true)
+       | grep -v 'check-privacy.sh' || true)
 if [ -n "$hits" ]; then
   echo "$hits" | head -5 | sed 's/^/     /'
   count=$(echo "$hits" | wc -l | tr -d ' ')
@@ -99,7 +99,7 @@ echo
 echo "──────────────────────────────────────"
 if [ "$errors" -gt 0 ]; then
   echo "  ERROR $errors 项，WARN $warns 项 → **先修再公开**"
-  echo "  改历史的方法见 docs/SECURITY.md"
+  echo "  改历史：git filter-branch --env-filter ...（记得清 refs/original/）"
   exit 1
 fi
 echo "  没有 ERROR（WARN $warns 项）→ 可以公开"

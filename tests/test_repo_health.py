@@ -140,10 +140,10 @@ if __name__ == "__main__":                                   # pragma: no cover
 
 
 class PrivacyGuardTests(unittest.TestCase):
-    """`scripts/check-privacy.sh` 必须真的能抓到泄露。
+    """`scripts/check-privacy.sh` 必须真的能发现问题。
 
     只验证"脚本存在"是**假绿** —— 它完全可能永远返回 0。
-    这里造一个含内网 IP 的临时仓库，断言脚本返回非零。
+    这里造一个含内网地址的临时仓库，断言脚本返回非零。
     """
 
     SCRIPT = REPO / "scripts" / "check-privacy.sh"
