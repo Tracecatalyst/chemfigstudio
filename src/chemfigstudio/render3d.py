@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from .errors import ConfigError, RenderError
-from .smiles import ensure_rdkit_path
+from .smiles import ensure_rdkit_path, quiet_rdkit
 
 __all__ = ["Conformer3D", "RDKIT_3D_HINT", "rdkit3d_available", "embed3d", "MOLBLOCK_FORMAT"]
 
@@ -86,26 +86,11 @@ def _build_mol(smiles: str):
         raise RenderError("SMILES 为空")
     # RDKit 默认把 "SMILES Parse Error" 直接写到 stderr —— 本项目约定
     # 库代码不许 print/写日志（AGENTS.md §4），错误通过异常上抛。
-    with _quiet_rdkit():
+    with quiet_rdkit():
         mol = Chem.MolFromSmiles(text)
     if mol is None:
         raise RenderError("RDKit 无法解析 SMILES %r（写法有误？）" % smiles)
     return mol, Chem.AddHs(mol)
-
-
-def _quiet_rdkit():
-    """临时屏蔽 RDKit 的 C++ 日志（rdBase.BlockLogs）。
-
-    RDKit 默认把 "SMILES Parse Error" 之类**直接写到 stderr**，而本项目约定
-    库代码不许 print/写日志（AGENTS.md §4）—— 错误只通过返回值与异常表达。
-    ``BlockLogs`` 是 RDKit 自带的上下文管理器；缺失时退化为不屏蔽（不影响正确性）。
-    """
-    try:
-        from rdkit import rdBase
-        return rdBase.BlockLogs()
-    except Exception:                              # pragma: no cover - 老版本 RDKit
-        import contextlib
-        return contextlib.nullcontext()
 
 
 def embed3d(smiles: str, *, seed: int = DEFAULT_SEED, prune_rms: float = DEFAULT_PRUNE_RMS,

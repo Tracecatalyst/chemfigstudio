@@ -7,6 +7,21 @@
 
 ### Fixed
 
+- **RDKit was installed but reported as missing.** The dependency search window went up
+  four levels, which reaches the project root but not a `vendor`/`.pylibs` kept above it, so
+  the viewer said "RDKit required" on a machine that had RDKit. The default is now eight
+  levels (only directories that actually contain `rdkit` are used), and
+  `CHEMFIG_PYLIBS_DEPTH` still overrides it.
+- **That change exposed a real leak**: `smiles._resolve_rdkit` did not wrap RDKit in
+  `quiet_rdkit()`, so `SMILES Parse Error` went straight to stderr, breaking the
+  "library code never prints" rule. The helper now lives in one place (`smiles.py`) and all
+  three entry points use it. The regression test had to change too: RDKit logs to *file
+  descriptor 2*, which `contextlib.redirect_stderr` cannot capture — the first version passed
+  vacuously. It now runs a subprocess and asserts on its stderr.
+
+
+### Fixed
+
 - **`dist/` accumulated several identically-named app bundles.** `make bundle` and
   `make bundle-universal` produce different artifact names, and the universal build used to
   leave its two architecture slices in `dist/universal-arm64/` and `dist/universal-x86_64/`

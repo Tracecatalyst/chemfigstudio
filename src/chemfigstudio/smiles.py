@@ -22,8 +22,8 @@ from typing import Dict, List, Optional
 
 from .errors import RenderError
 
-__all__ = ["SmilesInfo", "NAME_TABLE", "rdkit_available", "resolve_name",
-           "resolve_smiles"]
+__all__ = ["SmilesInfo", "NAME_TABLE", "rdkit_available", "quiet_rdkit",
+           "resolve_name", "resolve_smiles"]
 
 
 @dataclass
@@ -81,14 +81,15 @@ def _lib_candidates() -> List[Path]:
         if chunk.strip():
             candidates.append(Path(chunk).expanduser())
     here = Path(__file__).resolve()
-    # 往上找几层？默认 4（够到"包目录 → 仓库根"），可用 CHEMFIG_PYLIBS_DEPTH 调大：
-    # 仓库嵌在很深的目录里时（例如 课程/chem/tools/chemfig-studio），根目录的 .pylibs
-    # 可能落在窗口之外 —— 与其猜一个魔数，不如让它可配（上限 12，防止一路爬到 /）。
+    # 往上找几层？默认 8：既要够到"包目录 → 仓库根"（4 层），也要够到"依赖装在
+    # 仓库上方"的常见布局（例如 课程/chem/tools/chemfig-studio 而 .pylibs 在 课程/ 或
+    # 项目根）。只认**真的含 rdkit 的目录**，所以多看几层不会乱认。
+    # 要更远就设 CHEMFIG_PYLIBS_DEPTH（上限 16，防止一路爬到 / 去翻系统目录）。
     try:
-        depth = int(os.environ.get("CHEMFIG_PYLIBS_DEPTH") or 4)
+        depth = int(os.environ.get("CHEMFIG_PYLIBS_DEPTH") or 8)
     except ValueError:
-        depth = 4
-    depth = max(1, min(12, depth))
+        depth = 8
+    depth = max(1, min(16, depth))
     for parent in list(here.parents)[:depth]:
         candidates.append(parent / ".pylibs")
         candidates.append(parent / "vendor")              # 原生 app 的内嵌依赖
@@ -220,7 +221,8 @@ def _resolve_rdkit(smiles: str) -> SmilesInfo:
     from rdkit.Chem import Descriptors, rdMolDescriptors
 
     _raise_not_an_alcohol(smiles)
-    mol = Chem.MolFromSmiles(smiles)
+    with quiet_rdkit():
+        mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise RenderError("SMILES %r 写法有误，RDKit 无法解析（检查括号/环编号/元素符号）"
                           % smiles)
@@ -251,6 +253,23 @@ def _resolve_rdkit(smiles: str) -> SmilesInfo:
         source="rdkit",
         notes=notes,
     )
+
+
+def quiet_rdkit():
+    """临时屏蔽 RDKit 的 C++ 日志（``rdBase.BlockLogs``）。
+
+    RDKit 默认把 "SMILES Parse Error" 之类**直接写到 stderr**，而本项目约定
+    库代码不许 print/写日志（AGENTS.md §4）—— 错误只通过返回值与异常表达。
+
+    所有调用 RDKit 的地方都要包上它：解析 SEMILES 失败是最常见的一条，
+    一旦漏了，CLI 正常报错的同时终端还会多出一段英文日志。
+    """
+    try:
+        from rdkit import rdBase
+        return rdBase.BlockLogs()
+    except Exception:                              # pragma: no cover - 老版本 RDKit
+        import contextlib
+        return contextlib.nullcontext()
 
 
 def resolve_smiles(smiles: str) -> SmilesInfo:

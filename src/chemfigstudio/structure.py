@@ -29,7 +29,7 @@ from .skeleton import (
     Bond,
     Skeleton,
 )
-from .smiles import ensure_rdkit_path
+from .smiles import ensure_rdkit_path, quiet_rdkit
 
 __all__ = ["Structure2D", "RDKIT_2D_HINT", "from_molblock", "from_smiles",
            "molblock_to_skeleton", "DEFAULT_BOND_PX"]
@@ -330,9 +330,7 @@ def from_smiles(smiles: str, *, bond_px: float = DEFAULT_BOND_PX,
     except ImportError as exc:
         raise ConfigError(RDKIT_2D_HINT) from exc
 
-    from .render3d import _quiet_rdkit
-
-    with _quiet_rdkit():
+    with quiet_rdkit():
         mol = Chem.MolFromSmiles(text)
     if mol is None:
         raise RenderError("RDKit 无法解析 SMILES %r（写法有误？）" % smiles)

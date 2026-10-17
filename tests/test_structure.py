@@ -527,6 +527,68 @@ class SmilesImportTests(unittest.TestCase):
             structure.from_smiles("   ")
 
 
+class NoStderrLeakTests(unittest.TestCase):
+    """解析失败时**不能有 stderr 输出**（AGENTS §4：库代码不许 print）。
+
+    踩过：把依赖搜索深度从 4 调到 8 之后，本机 RDKit 突然"可见"了，于是
+    `smiles.resolve_smiles("not-real")` 走 RDKit 路径、RDKit 把
+    `SMILES Parse Error` 直接写到 stderr —— 全量测试输出里突然多出一段英文日志。
+    根本原因是 `_resolve_rdkit` 漏了 `quiet_rdkit()`（render3d/structure 包了，它没包）。
+
+    ⚠️ 必须**起子进程**来抓：RDKit 的 C++ 日志直接写文件描述符 2，
+    Python 的 ``contextlib.redirect_stderr`` 只重定向 ``sys.stderr``，抓不到 ——
+    第一版就是这么写的，测试永远绿（假绿），实际终端里照样喷日志。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from chemfigstudio import smiles as smiles_mod
+        cls.available = smiles_mod.rdkit_available()
+
+    def setUp(self):
+        if not self.available:
+            self.skipTest("没装 RDKit（可选依赖）")
+
+    def _stderr_of(self, body):
+        """在子进程里跑一段代码，返回它的 stderr（能看到 fd 2）。"""
+        import os
+        import subprocess
+        import sys
+
+        env = dict(os.environ)
+        env["PYTHONPATH"] = "src" if os.path.isdir("src") else ""
+        result = subprocess.run([sys.executable, "-c", body],
+                                capture_output=True, text=True, env=env, timeout=60)
+        return result.stderr
+
+    def test_smiles_parse_failure_is_silent(self):
+        stderr = self._stderr_of(
+            "from chemfigstudio import smiles\n"
+            "try:\n"
+            "    smiles.resolve_smiles('not-real')\n"
+            "except Exception:\n"
+            "    pass\n")
+        self.assertEqual(stderr, "", "resolve_smiles 把 RDKit 日志漏到了 stderr")
+
+    def test_structure_import_failure_is_silent(self):
+        stderr = self._stderr_of(
+            "from chemfigstudio import structure\n"
+            "try:\n"
+            "    structure.from_smiles('not-real')\n"
+            "except Exception:\n"
+            "    pass\n")
+        self.assertEqual(stderr, "", "from_smiles 把 RDKit 日志漏到了 stderr")
+
+    def test_render3d_failure_is_silent(self):
+        stderr = self._stderr_of(
+            "from chemfigstudio import render3d\n"
+            "try:\n"
+            "    render3d.embed3d('not-real')\n"
+            "except Exception:\n"
+            "    pass\n")
+        self.assertEqual(stderr, "", "embed3d 把 RDKit 日志漏到了 stderr")
+
+
 class MissingRdkitTests(unittest.TestCase):
     def test_hint_names_both_ways_out(self):
         """没装 RDKit 时，提示要同时给出"装它"和"改用 molblock"两条路。"""
