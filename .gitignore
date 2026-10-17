@@ -13,3 +13,6 @@ dist/
 
 # Structure-import showcase output (run `make showcase`; not committed)
 examples/import/
+
+# 2D vs 3D comparison output (run `make compare`; not committed)
+examples/compare/

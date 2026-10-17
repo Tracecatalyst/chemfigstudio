@@ -36,6 +36,10 @@ showcase:
 	@# Structure-import showcase (renders a dozen real molecules from SMILES)
 	$(PYTHONPATH_ENV) $(PY) scripts/make-showcase.py
 
+compare:
+	@# 2D structural formula vs 3D conformer (self-contained HTML, rotatable)
+	$(PYTHONPATH_ENV) $(PY) scripts/make-compare.py
+
 figures:
 	@mkdir -p $(OUT)
 	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1 -o $(OUT)/图1_丁醇.png
