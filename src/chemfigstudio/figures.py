@@ -576,7 +576,12 @@ def skeleton_figure(out, skeleton: str = "", title: Optional[str] = None,
             drawn = bond
             if aromatic_atoms and bond.a in aromatic_atoms and bond.b in aromatic_atoms:
                 drawn = replace(bond, order=1, wedge="none")
-            _draw_bond(draw, place(first, dx, dy), place(second, dx, dy), drawn)
+            start = place(first, dx, dy)
+            end = place(second, dx, dy)
+            # 两端缩到标签边缘（裸碳一侧不动）—— 否则线会穿过 "CH_{3}" 这类文字
+            start = _shrink_to_label(start, end, _label_extent(draw, first))
+            end = _shrink_to_label(end, start, _label_extent(draw, second))
+            _draw_bond(draw, start, end, drawn)
         if rings:
             _draw_aromatic_circles(draw, data, place, dx, dy)
 
@@ -692,37 +697,92 @@ _LABEL_FONT = 19
 _LABEL_SUB = 13
 
 
-def _draw_atom(draw, centre: Tuple[float, float], atom) -> None:
-    """画一个原子：白底圆点 + 元素配色 + 富文本标签。
+#: 标签文字的垂直偏移（从原子中心到文字左上角）
+_LABEL_DY = -12
+#: 标签与键之间留的空隙（像素）。太大键会"脱节"，太小会顶到字上。
+_LABEL_PAD = 2.0
 
-    **裸碳不写字**：结构式里碳骨架是线，顶点只画一个小圆点（否则满图都是 "C"）。
-    其余原子按标签绘制；标签比圆点宽时就让它自然溢出（而不是把圆点撑成巨球）。
+
+def _atom_label(atom) -> str:
+    """这个原子要写出来的文字（裸碳返回空串）。"""
+    if atom.element == "C" and not atom.label:
+        return ""                     # 裸碳：结构式里碳是线，不写字
+    return atom.text()
+
+
+def _label_extent(draw, atom) -> Optional[Tuple[float, float, float]]:
+    """标签占的 ``(半宽, 上边距, 下边距)``（都相对原子中心）；裸碳返回 None。
+
+    画键时要靠它把键**缩到标签边缘**，否则线会穿过 "CH_{3}" 这样的文字。
+
+    ⚠️ 上下必须分开算：文字不是垂直居中在原子上的（:data:`_LABEL_DY` 把它上移了
+    12 px），按对称的一半去缩，竖着的键就会穿到字里（踩过：``OH`` 上面那根线）。
+    """
+    label = _atom_label(atom)
+    if not label:
+        return None
+    font = core.fonts(_LABEL_FONT, True)
+    sub = core.fonts(_LABEL_SUB)
+    width = core.text_width(draw, label, font, sub)
+    top = _LABEL_DY - _LABEL_PAD                     # 负数：中心以上
+    bottom = _LABEL_DY + float(_LABEL_FONT) + _LABEL_PAD
+    return (width / 2.0 + _LABEL_PAD, top, bottom)
+
+
+def _draw_atom(draw, centre: Tuple[float, float], atom) -> None:
+    """画一个原子。
+
+    两种画法，按"有没有文字"分（这是结构式的通行做法）：
+
+    * **有标签**（``OH`` / ``CH_{3}`` / ``N`` …）→ **不画圆点**，文字直接占住顶点，
+      键在 :func:`_draw_bond` 那一侧缩到文字边缘。
+      早期版本是"把圆点撑大到能包住文字"，看起来像气泡里写字，不像课本。
+    * **裸碳**（骨架顶点）→ 画一个小圆点（本工具既有风格，保持不变）。
     """
     from .skeleton import ATOM_RADIUS
 
     ax, ay = centre
-    label = atom.text()
-    # 裸碳（没有用户标签、就是元素符号 C）不写文字
-    bare_carbon = (atom.element == "C" and not atom.label)
-    if bare_carbon:
-        label = ""
+    label = _atom_label(atom)
 
-    radius = ATOM_RADIUS
-    if label:
-        font = core.fonts(_LABEL_FONT, True)
-        sub = core.fonts(_LABEL_SUB)
-        width = core.text_width(draw, label, font, sub)
-        # 圆点至少罩得住"元素符号本身"；长标签允许溢出，但圆点不要小得看不见
-        radius = max(ATOM_RADIUS, min(width / 2.0 + 6.0, ATOM_RADIUS * 1.6))
-
-    draw.ellipse([ax - radius, ay - radius, ax + radius, ay + radius],
-                 fill=WHITE, outline=_hex_to_rgb(atom.colour()), width=3)
     if not label:
+        radius = ATOM_RADIUS
+        draw.ellipse([ax - radius, ay - radius, ax + radius, ay + radius],
+                     fill=WHITE, outline=_hex_to_rgb(atom.colour()), width=3)
         return
+
     font = core.fonts(_LABEL_FONT, True)
     sub = core.fonts(_LABEL_SUB)
-    core.draw_rich_centred(draw, ay - 12, label, font, sub,
+    # 白底垫一层：环内的键不该从字缝里透出来
+    extent = _label_extent(draw, atom)
+    if extent:
+        half_w, top, bottom = extent
+        draw.rectangle([ax - half_w, ay + top, ax + half_w, ay + bottom], fill=WHITE)
+    core.draw_rich_centred(draw, ay + _LABEL_DY, label, font, sub,
                            fill=_hex_to_rgb(atom.colour()), cx=ax)
+
+
+def _shrink_to_label(centre: Tuple[float, float], other: Tuple[float, float],
+                     extent: Optional[Tuple[float, float, float]]) -> Tuple[float, float]:
+    """把键的这一端从原子中心**缩到标签边缘**（没有标签就原样返回）。"""
+    if not extent:
+        return centre
+    half_w, top, bottom = extent
+    dx = other[0] - centre[0]
+    dy = other[1] - centre[1]
+    length = (dx * dx + dy * dy) ** 0.5
+    if length < 1e-6:
+        return centre
+    ux, uy = dx / length, dy / length
+    # 沿着键方向走到标签矩形边界上需要多远：取两轴里更近的那个。
+    # 竖直方向要按**上/下边距分开**算（文字上移过，不对称）。
+    steps = []
+    if abs(ux) > 1e-6:
+        steps.append(half_w / abs(ux))
+    if abs(uy) > 1e-6:
+        steps.append((abs(top) if uy < 0 else bottom) / abs(uy))
+    step = min(steps) if steps else 0.0
+    step = min(step, length / 2.0)      # 别把键缩没了
+    return (centre[0] + ux * step, centre[1] + uy * step)
 
 
 def _hex_to_rgb(value: str) -> Tuple[int, int, int]:

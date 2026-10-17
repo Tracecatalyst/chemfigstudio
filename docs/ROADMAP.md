@@ -32,6 +32,7 @@
 | ③ | **价键检查**（超价报警，欠价不报、电荷修正、未知元素跳过） | 金 | `skeleton.py::Skeleton.valence_errors` · `tests/test_skeleton.py::ValenceTests` |
 | ④ | **结构导出**：molblock（零依赖）/ 规范 SMILES / InChI | 银 | ADR-015 · `structure.py::to_molblock` · `cli.py::_cmd_convert` |
 | — | **芳香环圆圈**（`rings` 参数，默认关；拓扑启发式） | 银 | `skeleton.py::Skeleton.aromatic_rings` · `figures.py::_draw_aromatic_circles` |
+| — | **标签排版**（有标签不画圆点，键缩到文字边缘） | 铜 | `figures.py::_label_extent` · `figures.py::_shrink_to_label` |
 
 核实命令：
 
@@ -48,9 +49,6 @@ ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
 ### 金 —— 让"读进来的分子"不出错
 
 ### 银 —— 让"画出来的分子"能交换
-
-- [ ] **标签排版**：长标签（`CH_{3}`）会盖住原子圆点
-  - 现状：圆点按标签宽度放大了，但没做"标签放在圆点外侧"的排布
 
 ### 铜 —— 打磨
 

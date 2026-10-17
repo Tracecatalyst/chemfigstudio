@@ -682,3 +682,102 @@ class AromaticRingTests(unittest.TestCase):
         spec = api.FIGURES["skeleton"]
         names = [param.name for param in spec.params]
         self.assertIn("rings", names)
+
+
+class LabelLayoutTests(unittest.TestCase):
+    """标签排版：有标签的原子**不画圆点**，键缩到标签边缘。
+
+    早期版本是"把圆点撑大到能包住文字" —— 看起来像气泡里写字，不像课本结构式。
+    """
+
+    @staticmethod
+    def _surface(width=600, height=400):
+        from chemfigstudio import core
+        return core.new_surface(width, height)
+
+    def _atom(self, element, label="", charge=0):
+        from chemfigstudio.skeleton import Atom
+        atom = Atom(id="a", element=element, label=label, x=100.0, y=100.0)
+        atom.charge = charge
+        return atom
+
+    # ----------------------------------------------------------- 占位判断
+
+    def test_bare_carbon_has_no_label_extent(self):
+        from chemfigstudio import figures
+        self.assertIsNone(figures._label_extent(self._surface(), self._atom("C")))
+
+    def test_labelled_atom_has_an_extent(self):
+        from chemfigstudio import figures
+        extent = figures._label_extent(self._surface(), self._atom("O", "OH"))
+        self.assertIsNotNone(extent)
+        half_w, top, bottom = extent
+        self.assertGreater(half_w, 0)
+        self.assertLess(top, 0, "上边距应当是负数（在中心以上）")
+        self.assertGreater(bottom, 0)
+
+    def test_vertical_extent_is_not_symmetric(self):
+        """文字被上移了 12 px，所以"上方要留的空白"比下方多。
+
+        对称处理会让竖着的键穿到字里（踩过：``OH`` 上方那根线）。
+        """
+        from chemfigstudio import figures
+        _half_w, top, bottom = figures._label_extent(self._surface(),
+                                                     self._atom("O", "OH"))
+        self.assertGreater(abs(top), bottom,
+                           "上方留白 %s 应当大于下方 %s（文字上移过）" % (abs(top), bottom))
+
+    # ------------------------------------------------------------- 缩键
+
+    def test_shrink_moves_the_endpoint_towards_the_other_atom(self):
+        from chemfigstudio import figures
+        extent = (20.0, -14.0, 9.0)
+        start = figures._shrink_to_label((100.0, 100.0), (300.0, 100.0), extent)
+        self.assertGreater(start[0], 100.0, "应当朝另一个原子移动")
+        self.assertAlmostEqual(start[1], 100.0, delta=0.01, msg="水平键不该改变 y")
+        self.assertAlmostEqual(start[0], 120.0, delta=0.5,
+                               msg="沿键方向正好走 half_w=20")
+
+    def test_shrink_never_eats_the_whole_bond(self):
+        """两个标签离得很近时，键不能被缩成反方向（那会画歪）。"""
+        from chemfigstudio import figures
+        extent = (1000.0, -1000.0, 1000.0)
+        start = figures._shrink_to_label((100.0, 100.0), (110.0, 100.0), extent)
+        self.assertLessEqual(start[0], 105.0 + 1e-6, "最多缩到一半")
+
+    def test_shrink_uses_the_right_side_for_vertical_bonds(self):
+        """向上的键用"上边距"，向下的键用"下边距" —— 不对称就是为这个。"""
+        from chemfigstudio import figures
+        extent = (20.0, -14.0, 9.0)
+        up = figures._shrink_to_label((100.0, 100.0), (100.0, 0.0), extent)
+        down = figures._shrink_to_label((100.0, 100.0), (100.0, 200.0), extent)
+        self.assertAlmostEqual(100.0 - up[1], 14.0, delta=0.5, msg="向上缩 14")
+        self.assertAlmostEqual(down[1] - 100.0, 9.0, delta=0.5, msg="向下缩 9")
+
+    def test_no_extent_means_no_shrink(self):
+        from chemfigstudio import figures
+        self.assertEqual(figures._shrink_to_label((10.0, 20.0), (100.0, 20.0), None),
+                         (10.0, 20.0))
+
+    # ------------------------------------------------------------- 端到端
+
+    def test_labelled_molecule_renders_clean(self):
+        import tempfile
+        from pathlib import Path
+
+        from chemfigstudio import figures
+        from chemfigstudio.skeleton import Skeleton
+
+        skeleton = Skeleton()
+        first = skeleton.add_atom("C", 100.0, 100.0)
+        second = skeleton.add_atom("C", 200.0, 160.0)
+        oxygen = skeleton.add_atom("O", 300.0, 100.0)
+        skeleton.add_bond(first.id, second.id)
+        skeleton.add_bond(second.id, oxygen.id)
+        skeleton.atoms[2].label = "OH"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = figures.skeleton_figure(str(Path(tmp) / "x.png"),
+                                             skeleton=skeleton.to_json(),
+                                             formats=("png",), dpi=150)
+        self.assertEqual(result.warnings, [])

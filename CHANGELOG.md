@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Atom labels now follow the usual structural-formula convention**: an atom with a label
+  (`OH`, `CH_{3}`, `N`, …) no longer draws a dot — the text occupies the vertex and bonds are
+  shortened to the text edge. Previously the dot was inflated until it could contain the text,
+  which looked like writing inside a bubble, and a long label such as `CH_{3}` blew the dot up
+  into a ball.
+
+  Two details that are easy to get wrong: the top and bottom margins must be computed
+  **separately** (the text sits 12 px above centre, so a symmetric margin lets vertical bonds
+  run through the glyphs — that is how the line over `OH` got there), and the shortening must
+  be capped at half the bond length or a near pair of labels flips the bond direction.
+
+  Unlabelled skeletal carbons keep their small dot (existing style), and the six example
+  figures stay byte-identical — none of them is a skeleton figure.
+
+
 ### Fixed
 
 - **Chinese titles rendered as a `□`** — content loss, not just an ugly glyph. The cause was
