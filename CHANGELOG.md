@@ -18,11 +18,28 @@
   rendered by the drawing code itself — no browser, no screen recording, so the
   result cannot drift away from what the tool actually outputs.
 
-- **Repository metadata** — the description, 14 topics and homepage were all empty,
-  which meant the repository was effectively unindexed: searching
-  `structural formula png` returned 0 results. After filling them in, two of those
-  searches now return this repository first, and `topic:structure-drawing` has
-  exactly one member.
+- **Repository metadata** — description, topics and homepage were all empty.
+  Filled in: a description, a homepage pointing at the latest release, and 10
+  topics.
+
+  Measured honestly, this changes **discoverability** and little else. Before,
+  `structural formula png` returned zero results; now it returns one, which is
+  this repository — a "rank 1" with a denominator of 1 means nothing. In topics
+  that real people browse, we are nowhere: `chemistry` (3414 repos),
+  `cheminformatics` (1663), `molecule` (994), `rdkit` (759) — not in the top 100
+  of any of them. `chemistry-education` (115) has us at 77.
+
+  The first attempt also had four topics with one or two members total
+  (`3dmol`: 0, `chemistry-figures`: 1, `structure-drawing`: 1,
+  `structural-formula`: 2) plus two catch-all buckets (`python`: 955k,
+  `education`: 37k) where a new repository cannot surface. Replaced with
+  topics that have a real population.
+
+  Conclusion: metadata gets the repository *indexed*; it does not create
+  visibility. A 0-star repository two days old does not appear for
+  `chemistry drawing tool` at all (8 results, none of them us) or for
+  `structure editor chemistry` (14 results). Exposure has to come from outside
+  GitHub.
 
 
 ## [0.5.1] - 2026-10-18
