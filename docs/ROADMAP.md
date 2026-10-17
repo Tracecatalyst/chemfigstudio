@@ -1,0 +1,96 @@
+# ROADMAP —— 还差什么、做到哪了
+
+> 这份文件回答一个问题：**这个工具离"专业可用"还差什么**。
+> 每一项都带**证据**（commit / 代码位置 / 核实命令），不写"大概做了"。
+>
+> 背景：本工具的主场景是"参数 → 课本风格结构式"。专业工具（ChemDraw / Marvin /
+> ChemDoodle）的主场景是"结构 → 一切"。两者的差距是**结构文件进出 + 立体化学 +
+> 价键模型 + 性质计算 + 互操作标准**。这份清单就是按这个差距排的。
+
+---
+
+## 分级
+
+| 级 | 含义 | 判断标准 |
+|---|---|---|
+| **金** | 补上它，工具才算**能读真实分子** | 别人给你一个 `.mol` 或 SMILES，你能打开并画出来 |
+| **银** | 补上它，工具才算**专业可用** | 画出来的东西化学上站得住、能和别的软件交换文件 |
+| **铜** | 体验/打磨 | 不影响正确性，只影响顺手程度 |
+
+---
+
+## 已完成（有 commit 可查）
+
+| # | 事项 | 级 | 证据 |
+|---|---|---|---|
+| ① | **导入 molblock / SDF / SMILES** → 可编辑骨架 | 金 | `CHANGELOG.md` · `structure.py::parse_skeleton_input` |
+| ② | **楔形键**（实心/虚线，窄端=立体中心） | 金 | `CHANGELOG.md` · `skeleton.WEDGE_UP` |
+| ⑤ | **3D 构象查看器**（RDKit + 自托管 3Dmol.js） | 银 | ADR-012 · `render3d.py` · `/viewer3d` |
+| ⑥ | **2D/3D 对照页**（多分子并排，接进 app） | 银 | `CHANGELOG.md` · `/compare` |
+| — | 杂原子标签按**价键环境**推断（咖啡因的 N 不再写成 `NH₂`） | 银 | `CHANGELOG.md` |
+| — | 默认就能找到 RDKit（搜索深度 4→8） | 金 | `CHANGELOG.md` |
+
+核实命令：
+
+```bash
+PYTHONPATH=src python3 -c "from chemfigstudio.skeleton import parse_skeleton_input, WEDGE_UP; print('①②ok')"
+PYTHONPATH=src python3 -c "from chemfigstudio.render3d import embed3d; print(embed3d('CCO').formula)"
+ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
+```
+
+---
+
+## 待办（按建议顺序，逐项勾掉）
+
+### 金 —— 让"读进来的分子"不出错
+
+- [ ] **③ 价键检查**：画/导入时发现"碳有 5 根键"这类错误并报出来。
+  - 现状：`VALENCE` 数据表已在 `skeleton.py`，但**没有任何检查逻辑**
+  - 做法：`Skeleton.valence_errors()` 返回 `[(atom_id, 期望, 实际)]`；
+    接到导入后与编辑后，用 `SaveReport.warnings` 或 `RenderError` 表达
+  - 参考：`render3d` 的 `pruneRmsThresh` 式"宁可漏报不误报"
+
+- [ ] **芳香环画成圆圈**（现在一律 Kekulé 交替双键）
+  - 现状：`figures.py` 无 aromatic/circle 相关代码
+  - 注意：Kekulé 与圆圈**化学等价**，但课本两种都画；要按用户选择切换
+  - 风险：会改渲染输出 → 必须逐字节比对 6 张示例图
+
+### 银 —— 让"画出来的分子"能交换
+
+- [ ] **④ InChI 导出**（还有规范 SMILES）
+  - 现状：无 `InChI` 字样
+  - 成本最低的一项：RDKit 一行，但需要 ADR（新导出格式）
+
+- [ ] **molblock 反向导出**（把骨架存成 `.mol` 给别的软件）
+  - 现状：只有"读"，没有"写"；`MolToMolBlock` 只用于 3D 内部
+  - 这是"结构文件进出"缺的后一半 —— 现在只能进不能出
+
+- [ ] **标签排版**：长标签（`CH_{3}`）会盖住原子圆点
+  - 现状：圆点按标签宽度放大了，但没做"标签放在圆点外侧"的排布
+
+### 铜 —— 打磨
+
+- [ ] **对照页导出**：把某一行的 2D+3D 合成一张 PNG 存下来
+- [ ] **3D 导出 SVG**：3Dmol 只能出栅格（`pngURI`），要做 SVG 得换渲染器 —— 大概率不做
+- [ ] **对照页加进 `make browser-check`**（现在 22 条）防回归
+
+---
+
+## 明确**不做**（避免误期待）
+
+| 不做 | 原因 |
+|---|---|
+| 反应式配平 / 反应预测 | 那是化学信息学平台的事，不是画图工具 |
+| 光谱模拟（IR/NMR/质谱） | 同上，且需要量子化学后端 |
+| 分子对接 / 构象搜索（多构象） | RDKit `EmbedMultipleConfs` 只做"取最低能量"，不做搜索 |
+| 3D 编辑（拖原子改构象） | 3D 只出图；要编辑请用 Avogadro/PyMOL |
+| 读别人的 3D 场景（`.sdf` 当 3D） | 3D 是"只出不进" |
+| 第二个界面实现 | 违反 ADR/ARCHITECTURE §6：界面只有 `gui/static/` 一份 |
+
+---
+
+## 怎么更新这份清单
+
+1. 做完了 → 把 `[ ]` 改 `[x]`，并在"已完成"表加一行**带 commit hash 的证据**
+2. 发现新缺口 → 加进对应分级，写清"现状"（用命令核实过，不靠印象）
+3. **不许**只改文字不改状态；状态要么有代码，要么有测试，要么标"未做"

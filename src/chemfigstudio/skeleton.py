@@ -22,19 +22,31 @@ __all__ = ["Atom", "Bond", "Skeleton", "Scene", "ELEMENTS", "ELEMENT_LABELS",
            "DEFAULT_BOND_LENGTH", "ANGLE_STEP", "BOND_HIT_TOLERANCE", "MOLECULE_GAP"]
 
 #: 支持的元素及其显示颜色（十六进制；渲染时交给 core 的颜色常量/默认墨色）
+#:
+#: 颜色大体沿用 CPK 惯例（C 墨色、O 红、N 蓝、卤素绿/棕、S 黄、P 橙）。
 ELEMENTS: Dict[str, str] = {
     "C": "#111827", "H": "#6B7280", "O": "#D61F1F", "N": "#1D4ED8",
     "Cl": "#15803D", "Br": "#92400E", "S": "#A16207", "P": "#C2410C",
     "F": "#0F766E", "I": "#7E22CE", "B": "#B45309",
 }
-#: 元素切换时的默认显示文本（画结构式时最常用到的写法）
+#: 元素切换时的默认显示文本（画示性式时最常用到的写法）
+#:
+#: 注意：这里给的是**基团写法**（``C`` → ``CH_{3}``），因为这是本工具的主场景。
+#: 不在这张表里的元素（金属、稀有气体等）退回元素符号本身 —— 见 :meth:`Atom.text`。
 ELEMENT_LABELS: Dict[str, str] = {
     "C": "CH_{3}", "H": "H", "O": "OH", "N": "NH_{2}",
     "S": "SH", "Cl": "Cl", "Br": "Br", "P": "PH_{2}",
     "F": "F", "I": "I", "B": "B",
 }
 
-#: 价键上限（元素 → 允许的最大键级之和）；不在表里的元素不检查
+#: 价键上限：元素 → 允许的最大键级之和。
+#:
+#: **目前只是数据，还没有检查逻辑**（见 docs/ROADMAP.md 的金牌项 ③）。
+#: 加检查时请遵守"宁可漏报也不误报"：不在表里的元素一律不检查，
+#: 因为配位化合物、自由基、非标准价态都可能合法。
+#:
+#: （2026-10 修正：这里原先指向一个从未实现的方法和一个从未分配的 ADR 编号，
+#:   等于文档在描述不存在的东西。现在改成如实说明"只有数据、没有检查"。）
 VALENCE: Dict[str, int] = {"H": 1, "B": 3, "C": 4, "N": 3, "O": 2, "F": 1,
                            "P": 5, "S": 6, "Cl": 1, "Br": 1, "I": 1}
 
@@ -69,10 +81,12 @@ class Atom:
     charge: int = 0          # 形式电荷（导入真实分子时会有，如 N+ / O-）
 
     def text(self) -> str:
-        """显示文本：用户标签优先，空标签就显示元素符号。
+        """显示文本：用户标签优先，**空标签就显示元素符号**。
 
-        不要在这里回退到 ELEMENT_LABELS（那是"切换元素时的默认基团写法"）：
-        骨架碳本该没有文字，回退成 CH_{3} 会让整张图变成一堆甲基。
+        注意别在这里回退到 ``ELEMENT_LABELS``：那张表是"切换元素时给个默认基团写法"
+        （``C`` → ``CH_{3}``），不是渲染默认值。骨架碳本来就该**没有文字**（结构式里
+        碳骨架是线），一旦回退成 ``CH_{3}``，整张图会变成一堆甲基。
+        要不要真的画出这个符号，由渲染层决定（碳的孤立符号可以不画）。
         """
         return self.label or self.element
 
@@ -95,6 +109,7 @@ class Atom:
                    charge=int(raw.get("charge") or 0))
 
 
+#: 立体键的三种画法（"立体化学"最简单也最通用的一种表示）
 WEDGE_NONE = "none"
 WEDGE_UP = "up"          # 实心楔形：朝观察者（molblock 里是 1）
 WEDGE_DOWN = "down"      # 虚线楔形：朝里（molblock 里是 6）
@@ -108,7 +123,7 @@ class Bond:
     a: str
     b: str
     order: int = 1           # 1 = 单键，2 = 双键
-    wedge: str = WEDGE_NONE  # none | up | down（窄端 = a，即立体中心）
+    wedge: str = WEDGE_NONE  # none | up | down（从 a 指向 b，与绘制顺序一致）
 
     def as_dict(self) -> Dict[str, Any]:
         data = {"a": self.a, "b": self.b, "order": int(self.order)}

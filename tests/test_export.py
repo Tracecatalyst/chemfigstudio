@@ -175,12 +175,16 @@ class FormatDocumentationTests(unittest.TestCase):
 
     @classmethod
     def _scanned_text(cls, path, rel):
-        """返回本文档里"现役"的部分（CHANGELOG 只取第一个发布段之前的内容）。"""
+        """返回本文档里"现役"的部分（CHANGELOG 只取第一个**已发布**版本之前）。
+
+        不要写死版本号：私有仓库是 0.2.x、公开仓库是 0.4.x，写死会让它在
+        另一边永远匹配不到 —— 而这种情况曾被重复类名静默掩盖过。
+        """
         text = path.read_text(encoding="utf-8")
         if rel in cls.PARTIAL_FILES:
-            marker = "## [0.4.0]"
-            if marker in text:
-                return text[:text.index(marker)]
+            first_release = re.search(r"^## \[\d", text, re.MULTILINE)
+            if first_release:
+                return text[:first_release.start()]
         return text
 
     def test_docs_do_not_claim_png_only(self):
@@ -255,33 +259,3 @@ class PreviewSizeTests(unittest.TestCase):
         before = {p.name for p in output.iterdir()}
         api.preview("series", {})
         self.assertEqual({p.name for p in output.iterdir()}, before)
-
-class FormatDocumentationTests(unittest.TestCase):
-    """文档不能说"只出 PNG"：SVG/PDF 早就实现了（ADR-014 取代了 ADR-004）。
-
-    踩过：`ARCHITECTURE.md §11`、§7.4、ADR-004、README FAQ 四处同时声称只做 PNG，
-    而代码三种格式都能出 —— 读者会以为矢量输出是个"待办"，而不是已有功能。
-    """
-
-    ROOT = Path(__file__).resolve().parents[1]
-    #: 允许出现"只出 PNG"的地方：ADR-004 原文与取代它的 ADR-014（历史记录）
-    HISTORY_FILES = ("docs/DECISIONS.md",)
-
-    def test_docs_do_not_claim_png_only(self):
-        patterns = ("只出 PNG", "只输出 PNG", "只做 PNG", "PNG only")
-        checked = 0
-        for path in sorted(self.ROOT.glob("*.md")) + sorted((self.ROOT / "docs").glob("*.md")):
-            rel = path.relative_to(self.ROOT).as_posix()
-            if rel in self.HISTORY_FILES:
-                continue                      # ADR 原文保留历史措辞
-            text = path.read_text(encoding="utf-8")
-            checked += 1
-            for pattern in patterns:
-                self.assertNotIn(pattern, text,
-                                 "%s 里仍说 %r —— 现在 PNG/SVG/PDF 都支持（ADR-014）"
-                                 % (rel, pattern))
-        self.assertGreater(checked, 0, "没扫到任何文档，断言等于空转")
-
-    def test_formats_are_actually_three(self):
-        from chemfigstudio import settings
-        self.assertEqual(tuple(settings.VALID_FORMATS), ("png", "svg", "pdf"))

@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`docs/ROADMAP.md`** turns "what is still missing" into a file (it previously lived only
+  in a conversation). It is graded gold / silver / bronze, every completed item carries
+  evidence (commit hash or code location), and there is an explicit "deliberately not doing"
+  list (reaction balancing, spectra, docking, 3D editing, a second UI).
+- **`tests/test_repo_health.py`** — four repository guards: no references to unallocated
+  ADRs, no duplicate class names in a module, no duplicate method names in a class, and
+  ROADMAP completed items must carry evidence.
+
+### Fixed
+
+- **A test was silently swallowed.** `tests/test_export.py` had two classes named
+  `FormatDocumentationTests`; the second replaced the first, so two tests never ran
+  (`unittest` reports nothing and still exits 0). Removing the duplicate immediately exposed
+  a failure: one test hard-coded the version heading `## [0.4.0]`, which cannot match here.
+  It now finds the first released version with a regex.
+- **A comment described something that does not exist**: `skeleton.py` pointed at
+  `Skeleton.valence_errors` (never implemented) and an unallocated ADR. It now states plainly
+  that `VALENCE` is data only, with no checking logic yet.
+
+
 ### Changed
 
 - **The comparison page now shows several molecules side by side.** Six presets render at
