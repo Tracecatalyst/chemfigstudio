@@ -8,13 +8,11 @@ engine, no third-party drawing app — one small Python package and Pillow.
 *Change a parameter, the figure follows. Then: an aromatic ring drawn as a circle
 instead of Kekulé bonds, and real molecules imported straight from SMILES.*
 
-### The interface
+![chemfigstudio interface](docs/images/gui-dark.png)
 
-`make gui`（or `scripts\launch-gui.bat` on Windows）starts a local web server on
-`127.0.0.1:8765` and opens it. The left panel takes parameters, the middle shows a live
-preview, the right holds layers and the output file. Buttons along the bottom of the left
-panel: **Generate · Export image… · Copy image · Batch… · Edit skeleton · 3D molecule
-viewer · 2D vs 3D**. Light and dark themes both ship.
+*The local web GUI, dark theme (v0.5.1). Left: parameters. Middle: live preview.
+Right: layers and the output file. Bottom of the left panel: Generate · Export ·
+Copy · Batch · Edit skeleton · 3D molecule viewer · 2D vs 3D. A light theme ships too.*
 
 **Repository:** https://github.com/Tracecatalyst/chemfigstudio
 

@@ -34,13 +34,21 @@
   any more (checked file by file).
 
 
-### Removed
+### Changed
 
-- **The two GUI screenshots** (`docs/images/gui-{light,dark}.png`). They came from the
-  very first commit and showed a control — "转角标注风格" / `label_style` — that no longer
-  exists in the interface, while missing the six buttons now at the bottom of the left
-  panel. That is not an outdated picture, it is a picture of an interface that is not
-  there. Both READMEs now describe the layout in words instead.
+- **`docs/images/gui-dark.png` recaptured at v0.5.1.** The old pair dated from the first
+  commit and was missing the six buttons now at the bottom of the left panel (Export / Copy /
+  Batch / Edit skeleton / 3D viewer / 2D vs 3D). The new capture shows them; the light-theme
+  one is still to do (`docs/SCREENSHOTS.md`). The output-directory line was blanked out — it
+  prints the local path, which is how a username leaked once already.
+
+  Correction, because the first version of this entry got it wrong: it claimed the old
+  screenshots showed a `label_style` control that had been deleted. That was false. The
+  control is there — `/api/figures` still returns `label_style` for `alcohol` and
+  `butanol_report`, and the parameter form is rendered **from that API response**, not from
+  static HTML. Grepping `index.html` for the string finds nothing, which says nothing about
+  whether the interface has the control. Lesson recorded: this UI is data-driven, so static
+  greps cannot answer "does the interface still have X".
 
   They could not be retaken automatically: five approaches all time out
   (`page.screenshot`, CDP `Page.captureScreenshot`, `fromSurface:false`, freezing

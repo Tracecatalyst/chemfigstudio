@@ -1,12 +1,12 @@
 # 界面截图 —— 拍什么、怎么拍
 
-README 里原本有两张界面截图，来自 v0.3.0。它们被删掉了，因为：
+README 里原本有两张界面截图，来自初版。它们被删掉了，因为左栏底部多了 6 个按钮
+（Export / Copy / Batch / Edit skeleton / 3D molecule viewer / 2D vs 3D），旧图一个都没拍到。
 
-- 图里有个「转角标注风格」控件，**当前界面已经没有了**；
-- 当前左栏底部多了 6 个按钮（Batch / Edit skeleton / 3D molecule viewer / 2D vs 3D / …），
-  旧图里一个都没拍到（它们在面板底部，要滚动才看到）。
-
-所以旧图**不是"有点旧"，是画了一个不存在的界面**。
+> **一条踩过的坑**：最初删图的理由是"图里有个 `label_style` 控件，当前界面已经没有了"。
+> 那是**错的** —— 这个界面是**数据驱动**的，参数表单由 `/api/figures` 的响应动态渲染，
+> 所以 `index.html` 里 grep 不到 `label_style`，但控件一直在（`/api/figures` 里明确返回
+> 它）。**静态 grep 不能回答"界面还有没有某个控件"。**
 
 ## 为什么不能自动拍
 
@@ -20,9 +20,9 @@ README 里原本有两张界面截图，来自 v0.3.0。它们被删掉了，因
 
 | 文件 | 页面 | 状态 |
 |---|---|---|
-| `docs/images/gui-light.png` | `http://127.0.0.1:8765/` | 亮色主题，已生成一张预览图 |
-| `docs/images/gui-dark.png` | 同上 | 深色主题（设置里切换） |
-| `docs/images/compare.png` | `http://127.0.0.1:8765/compare` | 2D vs 3D 对照页，有几个分子 |
+| `docs/images/gui-dark.png` | `http://127.0.0.1:8765/` | ✅ 已有（v0.5.1，深色，路径已抹） |
+| `docs/images/gui-light.png` | 同上 | ⬜ 待补（亮色主题） |
+| `docs/images/compare.png` | `http://127.0.0.1:8765/compare` | ⬜ 待补（2D vs 3D 对照页） |
 
 可选第四张：`http://127.0.0.1:8765/viewer3d`（3D 构象查看器）。
 
