@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The comparison page now shows several molecules side by side.** Six presets render at
+  once, one row each (2D formula left, rotatable 3D conformer right), with "show only this
+  one" for any SMILES and "restore all examples"; the toolbar also gained auto-rotate and
+  element-label toggles.
+
+  Two problems had to be solved for that, not hand-waved:
+  * **2D requests must be serialised** — `api.preview()` writes the fixed filename
+    `preview.png`, so six concurrent requests overwrite each other and every row ends up
+    showing the same molecule. The page now funnels them through a promise chain (`twoDChain`)
+    while 3D stays concurrent (it returns JSON). Verified: the six rendered formulas have
+    different pixel dimensions, which they could not if one file were shared.
+  * **3D viewers initialise lazily** (on scroll), so six WebGL contexts do not hit the
+    browser limit at once; stale async results are dropped by a render token.
+
+
 ### Added
 
 - **The 2D vs 3D comparison is now part of the app.** A new toolbar button opens `/compare`:

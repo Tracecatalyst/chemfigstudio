@@ -1,6 +1,6 @@
-/* compare.css —— 2D 结构式 vs 3D 构象 对照页
+/* compare.css —— 2D 结构式 vs 3D 构象 对照页（多分子并排）
  *
- * 复用 style.css 的 CSS 变量（深色模式自动跟随），只加本页的双栏布局。
+ * 复用 style.css 的 CSS 变量（深色模式自动跟随），只加本页的布局。
  * 独立文件的原因和 viewer3d.css 一样：主界面不需要这些样式，按需加载。
  */
 
@@ -18,26 +18,77 @@
   gap: 12px 18px;
 }
 
-.cmp-controls .field { margin: 0; min-width: 220px; flex: 1 1 220px; }
+.cmp-controls .field { margin: 0; }
+.cmp-controls .cmp-grow { flex: 1 1 260px; min-width: 220px; }
 .cmp-controls .actions { margin: 0; }
+.cmp-controls .toggles { gap: 16px; }
 .cmp-controls .hint { flex-basis: 100%; margin: 0; }
-.cmp-controls .status,
-.cmp-controls .error { flex-basis: 100%; margin: 0; }
+.cmp-controls .status { flex-basis: 100%; margin: 0; }
 
-.cmp-panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--gap);
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
 }
+
+.check input { cursor: pointer; }
+
+/* ------------------------------------------------------------ 每行一个分子 */
+
+.cmp-rows { display: flex; flex-direction: column; gap: var(--gap); }
+
+.cmp-rows .row {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 14px 18px 0;
+}
+
+.row-head h2 { margin: 0; font-size: 16.5px; }
+.row-head code {
+  font-size: 12.5px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.badges { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.panes { display: grid; grid-template-columns: 1fr 1fr; }
 
 @media (max-width: 900px) {
-  .cmp-panes { grid-template-columns: 1fr; }
+  .panes { grid-template-columns: 1fr; }
 }
 
-.cmp-pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pane { padding: 12px 18px 8px; min-width: 0; }
+.pane + .pane { border-left: 1px solid var(--line-soft); }
+
+@media (max-width: 900px) {
+  .pane + .pane { border-left: none; border-top: 1px solid var(--line-soft); }
+}
 
 .pane-label {
-  margin: 0;
+  margin: 0 0 8px;
   font-size: 11.5px;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -45,12 +96,12 @@
 }
 
 /* 两栏必须等高 —— 2D 与 3D 放一起才好对照 */
-.cmp-shot,
-.cmp-viewer {
-  height: 320px;
+.shot,
+.viewer {
+  height: 260px;
   background: #ffffff;                 /* 3D 背景固定白，导出帧才一致 */
   border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
+  border-radius: 10px;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -58,38 +109,32 @@
   position: relative;
 }
 
-.cmp-shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
+.shot img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }
 
-.cmp-shot .empty,
-.cmp-viewer .empty {
+.shot .empty,
+.viewer .empty {
   position: absolute;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12.5px;
+  padding: 0 12px;
+  text-align: center;
   pointer-events: none;
 }
 
-.cmp-meta {
-  list-style: none;
+.why {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 12.5px;
+  padding: 10px 18px 0;
+  font-size: 13.5px;
   color: var(--muted);
 }
 
-.cmp-meta li { display: flex; gap: 6px; align-items: baseline; }
-.cmp-meta code { color: var(--ink); font-size: 12.5px; }
+.why:empty { display: none; }
 
-.cmp-why {
+.meta {
   margin: 0;
-  padding: 10px 14px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  font-size: 13.5px;
-  color: var(--ink);
+  padding: 6px 18px 16px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
-.cmp-why:empty { display: none; }
+.meta:empty { display: none; }

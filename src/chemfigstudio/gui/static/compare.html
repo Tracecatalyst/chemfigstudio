@@ -22,48 +22,28 @@
 
   <main class="cmp-main">
     <section class="panel cmp-controls">
-      <label class="field">
+      <label class="field cmp-grow">
         <span data-i18n="compare.smiles">SMILES</span>
-        <input id="cmp-smiles" type="text" spellcheck="false" value="C1CCCCC1"
-               placeholder="C1CCCCC1">
+        <input id="cmp-smiles" type="text" spellcheck="false" placeholder="C1CCCCC1">
       </label>
-
-      <label class="field">
-        <span data-i18n="compare.preset">示例分子</span>
-        <select id="cmp-preset"></select>
-      </label>
-
       <div class="actions">
-        <button id="cmp-build" class="primary" data-i18n="compare.build">生成对照</button>
-        <button id="cmp-spin" data-i18n="compare.spin">自动旋转</button>
+        <button id="cmp-single" class="primary" data-i18n="compare.showOne">只看这一个</button>
+        <button id="cmp-reset" data-i18n="compare.reset">恢复全部示例</button>
       </div>
-
+      <div class="actions cmp-toggles">
+        <label class="check"><input id="cmp-spin" type="checkbox">
+          <span data-i18n="compare.spin">自动旋转</span></label>
+        <label class="check"><input id="cmp-labels" type="checkbox">
+          <span data-i18n="compare.labels">元素符号</span></label>
+      </div>
       <p class="hint" data-i18n="compare.hint">
         左边是本工具的主场景（课本风格结构式），右边是同一个分子的真实 3D 构象。
         拖动右边可以旋转。
       </p>
-      <p class="error" id="cmp-error" hidden></p>
       <p class="status" id="cmp-status"></p>
     </section>
 
-    <section class="cmp-panes">
-      <div class="cmp-pane">
-        <p class="pane-label" data-i18n="compare.twoD">2D 结构式</p>
-        <div class="cmp-shot">
-          <p class="empty" id="cmp-2d-empty" data-i18n="compare.empty">还没有图</p>
-          <img id="cmp-2d" alt="2D structure" hidden>
-        </div>
-      </div>
-      <div class="cmp-pane">
-        <p class="pane-label" data-i18n="compare.threeD">3D 构象（可拖动）</p>
-        <div class="cmp-viewer" id="cmp-host">
-          <p class="empty" id="cmp-3d-empty" data-i18n="compare.empty">还没有图</p>
-        </div>
-      </div>
-    </section>
-
-    <ul class="cmp-meta" id="cmp-meta"></ul>
-    <p class="cmp-why" id="cmp-why"></p>
+    <div id="cmp-rows" class="cmp-rows"></div>
   </main>
 
   <script src="/static/vendor/3Dmol-min.js"></script>

@@ -135,12 +135,36 @@ class GuiHttpTests(unittest.TestCase):
             self.assertNotIn(forbidden, js,
                              "compare.js 里出现了 %r —— 几何应该在服务端算" % forbidden)
 
-    def test_compare_page_guards_against_races(self):
-        """连点"生成"时只能认最后一次（preview.png 是固定文件名，会互相覆盖）。"""
+    def test_compare_page_serialises_the_2d_requests(self):
+        """2D 请求必须**串行**。
+
+        `api.preview()` 写的是固定文件名 `preview.png`。对照页要并排显示多个分子，
+        如果 6 个 2D 请求并发，它们会互相覆盖 —— 最后所有行都显示同一个分子。
+        所以前端必须有一条串行队列（`twoDChain`）。
+        """
         _status, body = self.get("/static/compare.js")
         js = body.decode("utf-8")
-        self.assertIn("CMP.seq", js)
-        self.assertIn("seq !== CMP.seq", js)
+        # 只看"twoDChain 这个名字存在"是**假守卫** —— 请求可以不挂在链上。
+        # 必须断言真的用 `.then(` 把下一次请求接在上一次的 Promise 后面。
+        self.assertIn("twoDChain.then(", js,
+                      "2D 请求没有挂在串行链上 → 6 个分子会互相覆盖 preview.png")
+        self.assertIn("twoDChain = run", js,
+                      "串行链没有延续（下一次请求不会等上一次）")
+        self.assertIn("queue2D", js)
+
+    def test_compare_page_discards_stale_results(self):
+        """重渲染后，上一轮的异步结果不能再画上去（用户连点/切分子时）。"""
+        _status, body = self.get("/static/compare.js")
+        js = body.decode("utf-8")
+        self.assertIn("CMP.token", js)
+        self.assertIn("token !== CMP.token", js)
+
+    def test_compare_page_builds_3d_lazily(self):
+        """3D 必须惰性初始化，否则多个分子一起建 WebGL context 会撞浏览器上限。"""
+        _status, body = self.get("/static/compare.js")
+        js = body.decode("utf-8")
+        self.assertIn("IntersectionObserver", js)
+        self.assertIn("maybeBuild3D", js)
 
     def test_main_ui_links_to_compare(self):
         """主界面必须有入口按钮，否则功能等于不存在。"""
