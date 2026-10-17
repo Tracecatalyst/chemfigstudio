@@ -87,6 +87,40 @@ print(result.size, result.warnings)
 从调色板选元素、放置官能团，`Apply` 后走同一套渲染器。`skeleton` 也接受 JSON，
 所以编辑器里的一次操作可以用脚本复现。
 
+## 结构文件进出
+
+`skeleton` 字段接受**三种输入**，按内容自动判断：
+
+| 输入 | 例子 | 依赖 |
+|---|---|---|
+| **SMILES** | `c1ccccc1O` | RDKit（出 2D 坐标与立体化学） |
+| **molblock / SDF**（V2000） | ChemDraw / PubChem 导出的 `.mol` | **零依赖**，纯文本解析 |
+| 骨架 JSON | 编辑器自己的格式 | 无 |
+
+导入后就是普通可编辑骨架：能拖原子、改键级、直接出图。支持立体键，**窄端永远在立体中心**
+（画反了就是另一种对映体）。
+
+反过来也能导出：
+
+```bash
+chemfigstudio convert --skeleton "CCO" -o ethanol.mol     # molblock（零依赖）
+chemfigstudio convert --skeleton "CCO" -o ethanol.smi     # 规范 SMILES（需 RDKit）
+chemfigstudio convert --skeleton "CCO" -o ethanol.inchi   # InChI（需 RDKit）
+```
+
+格式按输出扩展名推断。两条诚实限制：导出的 molblock **不写显式氢**（结构式里氢是隐含的，
+所以也没有氢的坐标 —— 它不是 3D 结构），且只写 **V2000**。
+
+**价键检查**：导入与出图时会报出超价的原子（比如碳连了 5 根键）。判据刻意保守 ——
+按键级之和算、**不报欠价**（氢是隐含的）、电荷会调整上限、表里没有的元素一律跳过。
+
+## 2D vs 3D 对照
+
+`/compare` 把同一分子的结构式与真实 3D 构象并排放，可以一次看多个，右边能拖动旋转。
+每一行都能导出成一张包含两半的 PNG。
+
+3D 那半是 WebGL 画布，所以导出在浏览器里合成（服务端没有它的像素）。
+
 ## 批量
 
 `Batch…` 读取 CSV（`kind,参数,…`）逐行成图，**逐行报错而不整体中断**，适合一整套醇。
