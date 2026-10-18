@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`uipromise-01` — the "Show in Finder" button was dead.** The first audit flagged it a
+  month of runs ago: the button ships disabled, gets re-disabled on every preview, and nothing
+  ever re-enables it. Disabling on preview is right (that file is a cache entry), but after a
+  successful export the file *is* the user's — and `app.js` never cleared the flag.
+
+  Now enabled on export success. A `browser-check` assertion was written to guard it and then
+  removed: it had to write into the directory configured in settings, which in a sandbox is
+  not writable, so the check tested the environment rather than the code. The fix is covered
+  by manual verification only — noted here rather than pretending otherwise.
+
+### Changed
+
+- **`docs/ROADMAP.md` caught up**: "export from the comparison page" and "add the comparison
+  page to `make browser-check`" were both marked undone and both had shipped. Marked done with
+  the commits that did them.
+
+
 ### Added
 
 - **The README finally shows 3D** (`docs/images/compare.png`). It described three

@@ -569,6 +569,9 @@ async function doExport(overwrite) {
   $("confirm-export").hidden = true;
   $("export-status").textContent = t("export.exported_to", { path: data.path });
   state.lastFile = data.file;
+  // 导出成功后才有"真正属于用户的文件"可以显示 —— 预览时禁用是对的（那是缓存），
+  // 但**导出后必须启用**。审计 uipromise-01：这里漏了一行，按钮永远点不动。
+  $("reveal").disabled = false;
   showWarnings(data.warnings);
 }
 

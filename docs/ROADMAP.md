@@ -52,9 +52,9 @@ ls src/chemfigstudio/gui/static/{viewer3d,compare}.js
 
 ### 铜 —— 打磨
 
-- [ ] **对照页导出**：把某一行的 2D+3D 合成一张 PNG 存下来
+- [x] **对照页导出**：把某一行的 2D+3D 合成一张 PNG 存下来（`2a22107`）
 - [ ] **3D 导出 SVG**：3Dmol 只能出栅格（`pngURI`），要做 SVG 得换渲染器 —— 大概率不做
-- [ ] **对照页加进 `make browser-check`**（现在 22 条）防回归
+- [x] **对照页加进 `make browser-check`**：3 条断言（24 条总计）（`2a22107`）
 
 ---
 
