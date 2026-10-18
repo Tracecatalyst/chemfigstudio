@@ -1,5 +1,8 @@
 # 贡献指南（CONTRIBUTING）
 
+> 日常闸门、修 bug 的循环、发布流程都在 [`docs/WORKFLOW.md`](docs/WORKFLOW.md)。
+
+
 > 面向人类贡献者。
 
 ## 环境

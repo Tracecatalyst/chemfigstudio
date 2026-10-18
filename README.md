@@ -33,6 +33,9 @@ Seven figure types, all reproducible from a command or one API call:
 | `esterification` | carboxylic acid + alcohol → ester + water | ![esterification](docs/images/figure-esterification.png) |
 | `skeleton` | an editable atom/bond graph (rings, branches, N/S/Cl/Br/P) | ![skeleton](docs/images/figure-skeleton.png) |
 
+> Working on this repository? [`docs/WORKFLOW.md`](docs/WORKFLOW.md) has the gates
+> (`make check`, `make check-all`), the bug-fix loop and `scripts/release.sh`.
+>
 > Auditing this repository? Start at [`docs/AUDIT.md`](docs/AUDIT.md) — it lists what has
 > already been checked (so you do not re-report it), the invariants that must hold, and the
 > blind spots worth attacking.
