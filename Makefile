@@ -51,6 +51,34 @@ demo-gif:
 	@# 重新生成 README 顶部的演示 GIF（docs/images/demo.gif）
 	@PYTHONPATH=$(SRC) $(PY) scripts/make-demo-gif.py
 
+check: lint test check-privacy
+	@# 日常闸门：快、无外部依赖（不起服务、不开浏览器）
+	@echo ""
+	@echo "── check 通过：lint · test · check-privacy ──"
+
+check-all: check typecheck figures-verify browser-check
+	@# 完整闸门：加类型检查、示例图逐字节回归、真浏览器回归
+	@echo ""
+	@echo "── check-all 通过 ──"
+
+figures-verify:
+	@# 示例图逐字节回归。用 git 判断而不是手工 cmp：git 本身就是内容哈希，
+	@# 而且**只认被跟踪的文件** —— 手工遍历目录会把未跟踪的垃圾文件也算成"一致"，
+	@# 那就成了假绿（真踩过：一个 1 字节的垃圾文件让检查报"7 张一致"）。
+	@make -s figures >/dev/null || { echo "  ❌ 生成示例图失败（那样下面的比较毫无意义）"; exit 1; }
+	@if git diff --quiet -- examples/out/; then \
+	  echo "  ✅ 示例图与 HEAD 逐字节一致（$$(git ls-files examples/out/ | wc -l | tr -d ' ') 张）"; \
+	else \
+	  echo "  ❌ 示例图变了："; \
+	  git diff --stat -- examples/out/ | sed 's/^/     /'; \
+	  echo "     渲染改动是允许的，但必须解释清楚是哪条规则变了，并提交新基线。"; \
+	  exit 1; \
+	fi
+	@if [ -n "$$(git ls-files --others --exclude-standard examples/out/)" ]; then \
+	  echo "  ⚠️  examples/out 里有未跟踪的新图（上面说"一致"没把它们算进去）："; \
+	  git ls-files --others --exclude-standard examples/out/ | sed 's/^/     /'; \
+	fi
+
 figures:
 	@mkdir -p $(OUT)
 	$(PYTHONPATH_ENV) $(PY) -m chemfigstudio.cli alcohol --n 4 --name butan-1-ol --dh -36.1 -o $(OUT)/图1_丁醇.png
